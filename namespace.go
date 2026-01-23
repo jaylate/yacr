@@ -8,7 +8,8 @@ import (
 )
 
 func executeInNamespace(name string, arg ...string) {
-    cmd := exec.Command("./bin/init", name, arg...)
+    cmd := exec.Command("./bin/init", name)
+    cmd.Args = append(cmd.Args, arg...)
     cmd.SysProcAttr = &syscall.SysProcAttr {
 	Cloneflags: syscall.CLONE_NEWUSER | syscall.CLONE_NEWUTS,
 	UidMappings: []syscall.SysProcIDMap {
