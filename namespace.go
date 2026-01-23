@@ -8,7 +8,7 @@ import (
 )
 
 func executeInNamespace(name string, arg ...string) {
-    cmd := exec.Command(name, arg...)
+    cmd := exec.Command("./bin/init", name, arg...)
     cmd.SysProcAttr = &syscall.SysProcAttr {
 	Cloneflags: syscall.CLONE_NEWUSER | syscall.CLONE_NEWUTS,
 	UidMappings: []syscall.SysProcIDMap {
@@ -31,13 +31,11 @@ func executeInNamespace(name string, arg ...string) {
     cmd.Stdin = os.Stdin
     cmd.Stderr = os.Stderr
 
-    err := cmd.Start()
-    if err != nil {
-        log.Fatal(err)
+    if err := cmd.Start(); err != nil {
+        log.Fatalf("Failed to start child process: %v", err)
     }
 
-    err = cmd.Wait()
-    if err != nil {
-        log.Fatal(err)
+    if err := cmd.Wait(); err != nil {
+        log.Fatalf("Child process exited with error: %v", err)
     }
 }
