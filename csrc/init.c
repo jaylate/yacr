@@ -17,6 +17,9 @@ int main(int argc, char **argv) {
 		exit(EXIT_FAILURE);
 	}
 
+	chroot("rootfs");
+	chdir("/");
+
 	execve(command, args, envp);
 
 	perror("execve");
