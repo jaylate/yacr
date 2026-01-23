@@ -2,6 +2,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mount.h>
 
 int main(int argc, char **argv) {
 	if (argc < 2) {
@@ -19,6 +20,11 @@ int main(int argc, char **argv) {
 
 	chroot("rootfs");
 	chdir("/");
+
+    if (mount("none", "/proc", "proc", 0, "") != 0) {
+        perror("mount");
+        exit(EXIT_FAILURE);
+    }
 
 	execve(command, args, envp);
 

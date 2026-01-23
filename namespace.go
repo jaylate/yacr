@@ -11,7 +11,7 @@ func executeInNamespace(name string, arg ...string) {
     cmd := exec.Command("./bin/init", name)
     cmd.Args = append(cmd.Args, arg...)
     cmd.SysProcAttr = &syscall.SysProcAttr {
-	Cloneflags: syscall.CLONE_NEWUSER | syscall.CLONE_NEWUTS,
+	Cloneflags: syscall.CLONE_NEWUSER | syscall.CLONE_NEWUTS | syscall.CLONE_NEWNS | syscall.CLONE_NEWPID,
 	UidMappings: []syscall.SysProcIDMap {
 	    {
                 ContainerID: 0,
