@@ -18,6 +18,16 @@ int main(int argc, char **argv) {
 		exit(EXIT_FAILURE);
 	}
 
+    if (mount("/dev", "rootfs/dev", "devtmpfs", MS_BIND | MS_REC, "") !=0) {
+        perror("mount");
+        exit(EXIT_FAILURE);
+    }
+
+    if (mount("/sys", "rootfs/sys", "sysfs", MS_BIND | MS_REC, "") !=0) {
+        perror("mount");
+        exit(EXIT_FAILURE);
+    }
+
 	chroot("rootfs");
 	chdir("/");
 
