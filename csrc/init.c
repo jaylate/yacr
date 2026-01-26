@@ -31,7 +31,7 @@ int main(int argc, char **argv) {
 	chroot("rootfs");
 	chdir("/");
 
-    if (mount("none", "/proc", "proc", 0, "") != 0) {
+    if (mount("none", "/proc", "proc", MS_NOSUID | MS_NODEV | MS_NOEXEC, "") != 0) {
         perror("mount");
         exit(EXIT_FAILURE);
     }
