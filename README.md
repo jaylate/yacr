@@ -1,25 +1,36 @@
 # yacr
 Yet Another Container Runtime
 
-## TODO
-- [ ] Parse arguments
+## Usage
+- `make build`
+- `./bin/yacr run /bin/sh` (direct `make run` is also supported)
+
+## Roadmap
+The roadmap is copied and adapted from [Challenge Docker](https://codingchallenges.fyi/challenges/challenge-docker/)
+- [X] Parse arguments
     - `yacr run <image> <command> <args>`
-- [ ] Run specified program
-- [ ] Give the container it's own hostname
+- [X] Run specified program
+- UTP Namespaces
     - [namespaces](https://man7.org/linux/man-pages/man7/namespaces.7.html)
     - [sethostname](https://www.man7.org/linux/man-pages/man2/sethostname.2.html)
     - [clone](https://www.man7.org/linux/man-pages/man2/clone.2.html)
-- [ ] Isolate processes running inside the container from the host filesystem
-    - [chroot](https://www.man7.org/linux/man-pages/man2/chroot.2.html)
-- [ ] Isolate the processes within the container from the host processes
-    - [mount](https://www.man7.org/linux/man-pages/man2/mount.2.html) the /proc virtual fs (unmount when terminating the container)
-    - Isolate new mount from the rest of the host
-        -  Create new mount namespace
-        -  Stop sharing the mount namespace with the host ([unshare](https://www.man7.org/linux/man-pages/man2/unshare.2.html))
-- [ ] Run the container rootless
-    - Create new user namespace and set the mappings between the users on the host and container ([user_namespaces](https://man7.org/linux/man-pages/man7/user_namespaces.7.html))
-- [ ] Limit the resources the container has available to it (memory, number of processes, CPU available).
-    - [cgroups](https://man7.org/linux/man-pages/man7/cgroups.7.html)
+- PID Namespaces
+    - [X] Isolate processes running inside the container from the host filesystem
+        - [chroot](https://www.man7.org/linux/man-pages/man2/chroot.2.html)
+    - [X] [mount](https://www.man7.org/linux/man-pages/man2/mount.2.html) the /proc virtual fs
+- Mount Namespaces
+    - [ ] Isolate new mount from the rest of the host
+        -  [X] Create new mount namespace
+        -  [ ] Stop sharing the mount namespace with the host ([unshare](https://www.man7.org/linux/man-pages/man2/unshare.2.html))
+    - [ ] Add support for isolated `/sys` and `/dev`
+    - [ ] Unmount when terminating the container
+- User Namespaces
+    - [X] Run the container rootless
+    - [ ] WIP Create new user namespace and set the mappings between the users on the host and container ([user_namespaces](https://man7.org/linux/man-pages/man7/user_namespaces.7.html))
+        - [ ] Support `setgroups` and use of available UID/GID space from `/etc/subuid` and `/etc/subgid`
+- Cgroups
+    - [ ] Limit the resources the container has available to it (memory, number of processes, CPU available).
+        - [cgroups](https://man7.org/linux/man-pages/man7/cgroups.7.html)
 - [ ] Pulling and running container images
     - Use the [Docker Registry HTTP API V2](https://distribution.github.io/distribution/spec/api/)
     - [Authenticate](https://distribution.github.io/distribution/spec/auth/token/)
