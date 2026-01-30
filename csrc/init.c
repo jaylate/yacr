@@ -21,7 +21,7 @@ int main(int argc, char **argv) {
 	chroot("rootfs");
 	chdir("/");
 
-    if (mount("none", "/proc", "proc", 0, "") != 0) {
+    if (mount("proc", "/proc", "proc", 0, "") != 0) {
         perror("mount");
         exit(EXIT_FAILURE);
     }
