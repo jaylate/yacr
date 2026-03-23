@@ -2,21 +2,45 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
+
+	"github.com/jaylate/yacr/cmd"
+	"github.com/jaylate/yacr/runtime"
 )
 
+type runtimeRunner func(command string, args []string, cfg *runtime.ContainerConfig) error
+
 func main() {
-	usageMsg := "Usage: " + os.Args[0] + " run <command> <arguments>"
-	if len(os.Args) > 1 {
-		if os.Args[1] == "run" && len(os.Args) > 2 {
-			command := os.Args[2]
-			args := os.Args[3:]
-			executeInNamespace(command, args...)
-		} else {
-			fmt.Println("Incorrect usage")
-			fmt.Println(usageMsg)
-		}
-	} else {
-		fmt.Println(usageMsg)
+	os.Exit(run(os.Args, os.Stderr, runtime.Run))
+}
+
+func run(args []string, stderr io.Writer, runner runtimeRunner) int {
+	cfg, err := cmd.ParseArgsWithWriter(args, stderr)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		cmd.Usage(stderr)
+		return 1
 	}
+
+	if cfg != nil && cfg.Help {
+		return 0
+	}
+
+	if cfg == nil {
+		fmt.Fprintln(stderr, "Invalid configuration")
+		return 1
+	}
+
+	containerCfg := &runtime.ContainerConfig{
+		RootFS:   cfg.RootFS,
+		Hostname: cfg.Hostname,
+	}
+
+	if err := runner(cfg.Command, cfg.Args, containerCfg); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+
+	return 0
 }

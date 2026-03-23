@@ -5,6 +5,9 @@ BINDIR      := ./bin
 CINITOBJ    := $(BINDIR)/init
 YACR        := $(BINDIR)/yacr
 
+CC          ?= gcc
+CFLAGS      ?= -Wall -Wextra
+
 .PHONY: all fmt build clean run buildinit
 all: build
 
@@ -12,7 +15,7 @@ $(BINDIR):
 	mkdir -p $@
 
 buildinit: $(CSRC) | $(BINDIR)
-	$(CC) $(CSRC) -o $(CINITOBJ)
+	$(CC) $(CFLAGS) $(CSRC) -o $(CINITOBJ)
 
 fmt: $(GOSRC)
 	go fmt ./...
