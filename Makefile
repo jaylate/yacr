@@ -8,7 +8,7 @@ YACR        := $(BINDIR)/yacr
 CC          ?= gcc
 CFLAGS      ?= -Wall -Wextra
 
-.PHONY: all fmt build clean run buildinit
+.PHONY: all fmt build clean run buildinit test
 all: build
 
 $(BINDIR):
@@ -26,7 +26,9 @@ build: fmt buildinit
 run: build
 	$(YACR) run /bin/sh
 
+test:
+	go test -v ./...
+
 clean:
 	go clean
 	rm -rf $(BINDIR)
-
