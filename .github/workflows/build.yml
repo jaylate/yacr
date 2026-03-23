@@ -16,6 +16,8 @@ jobs:
 
       - name: Setup Golang
         uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.5'
 
       - name: Build C
         run: gcc -Wall -Wextra csrc/init.c -o init
