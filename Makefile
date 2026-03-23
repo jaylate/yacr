@@ -20,7 +20,10 @@ buildinit: $(CSRC) | $(BINDIR)
 fmt: $(GOSRC)
 	go fmt ./...
 
-build: fmt buildinit
+vet: $(GOSRC)
+	go vet ./...
+
+build: fmt vet buildinit
 	go build -o $(BINDIR) ./...
 
 run: build
