@@ -1,44 +1,86 @@
 # yacr
-Yet Another Container Runtime
 
-## Usage
-- `make build`
-- `./bin/yacr run /bin/sh` (direct `make run` is also supported)
+Yet Another Container Runtime - a minimal container runtime written in Go
+
+## CLI Usage
+
+```bash
+make build
+./bin/yacr run /bin/sh
+```
+
+**Note:** Download an [Alpine rootfs](https://alpinelinux.org/downloads/) first
+
+### Options
+
+- `--hostname` - Set container hostname (default: `container`)
+- `--rootfs` - Set root filesystem path (default: `rootfs`)
+
+### Examples
+
+```bash
+./bin/yacr run /bin/sh
+./bin/yacr --hostname myhost run /bin/sh -l
+./bin/yacr --rootfs /path/to/rootfs run /bin/sh -c "echo hello"
+```
+
+## Library Usage
+
+Import the runtime package to use yacr as a library:
+
+```go
+import "github.com/jaylate/yacr/runtime"
+```
+
+### Run
+
+Execute a command in an isolated environment:
+
+```go
+// Basic usage
+runtime.Run("/bin/sh", nil, nil)
+
+// With command arguments
+runtime.Run("/bin/sh", []string{"-c", "echo hello"}, nil)
+
+// With configuration
+runtime.Run("/bin/sh", nil, &runtime.ContainerConfig{
+    RootFS:   "/path/to/rootfs",
+    Hostname: "myhost",
+})
+```
+
+## Configuration
+
+### ContainerConfig
+
+| Field | Type | Description | Default |
+|-------|------|-------------|---------|
+| InitBinary | string | Path to init binary | "./bin/init" |
+| RootFS | string | Root filesystem path | "rootfs" |
+| Hostname | string | Container hostname | "container" |
 
 ## Roadmap
-The roadmap is copied and adapted from [Challenge Docker](https://codingchallenges.fyi/challenges/challenge-docker/)
-- [X] Parse arguments
-    - `yacr run <image> <command> <args>`
-- [X] Run specified program
-- UTP Namespaces
-    - [namespaces](https://man7.org/linux/man-pages/man7/namespaces.7.html)
-    - [sethostname](https://www.man7.org/linux/man-pages/man2/sethostname.2.html)
-    - [clone](https://www.man7.org/linux/man-pages/man2/clone.2.html)
-- PID Namespaces
-    - [X] Isolate processes running inside the container from the host filesystem
-        - [chroot](https://www.man7.org/linux/man-pages/man2/chroot.2.html)
-    - [X] [mount](https://www.man7.org/linux/man-pages/man2/mount.2.html) the /proc virtual fs
-- Mount Namespaces
-    - [ ] Isolate new mount from the rest of the host
-        -  [X] Create new mount namespace
-        -  [ ] Stop sharing the mount namespace with the host ([unshare](https://www.man7.org/linux/man-pages/man2/unshare.2.html))
-    - [ ] Add support for isolated `/sys` and `/dev`
-    - [ ] Unmount when terminating the container
-- User Namespaces
-    - [X] Run the container rootless
-    - [ ] WIP Create new user namespace and set the mappings between the users on the host and container ([user_namespaces](https://man7.org/linux/man-pages/man7/user_namespaces.7.html))
-        - [ ] Support `setgroups` and use of available UID/GID space from `/etc/subuid` and `/etc/subgid`
-- Cgroups
-    - [ ] Limit the resources the container has available to it (memory, number of processes, CPU available).
-        - [cgroups](https://man7.org/linux/man-pages/man7/cgroups.7.html)
-- [ ] Pulling and running container images
-    - Use the [Docker Registry HTTP API V2](https://distribution.github.io/distribution/spec/api/)
-    - [Authenticate](https://distribution.github.io/distribution/spec/auth/token/)
-    - [Fetch the manifest for the image you wish to download](https://distribution.github.io/distribution/spec/api/#pulling-an-image-manifest)
-    - [Parse the manifest to identify the layers to be downloaded](https://distribution.github.io/distribution/spec/manifest-v2-2/)
-    - [Fetch each layer listed in the manifest](https://distribution.github.io/distribution/spec/api/#pulling-a-layer)
-    - Unzip the layers on top of each other to re-create the filesystem
-    - Fetch the config data and store it ready
-- [ ] Run the container image we’ve pulled down
-    - chroot to the root of the image we’ve pulled
-    - Parse the config data that we saved in the previous step, in particular set the environment variables and working directory.
+
+- [ ] Resource Limits (Cgroups v2)
+    - [ ] Add `runtime/resources` package with `CgroupManager` interface
+    - [ ] Create cgroup directory for container ID and apply limits (memory, CPU, pids)
+    - [ ] Attach child PID to cgroup after start
+    - [ ] Cleanup cgroup directory on process exit
+    - [ ] Add CLI flags: `--memory`, `--cpus`, `--pids`
+- [ ] Init (Separate C binary vs Go approach)
+    - [ ] Move to integrated Go init
+    - [ ] Add signal forwarding (SIGINT/SIGTERM) parent -> child
+    - [ ] Ensure cleanup hooks run on all exit paths
+- [ ] Image handling (OCI)
+    - [ ] Add `image` package with reference parsing
+    - [ ] Support local OCI archives (`oci-archive:/path/to/image.tar`)
+    - [ ] Unpack image layers to per-container rootfs workspace
+    - [ ] Set resolved rootfs into runtime config
+- [ ] Registry Pull (OCI)
+    - [ ] Support registry references (e.g., `docker.io/library/alpine:latest`)
+    - [ ] Pull manifest + blobs and cache locally
+    - [ ] Extract layers in order and apply config metadata
+    - [ ] Add digest/media-type validation
+- [ ] Testing
+    - [ ] Add comprehensive testing (OCI runtime spec compliance tests, integration tests)
