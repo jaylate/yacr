@@ -2,6 +2,7 @@ package resources
 
 import (
 	"os"
+    "fmt"
 	"testing"
 )
 
@@ -81,14 +82,13 @@ func TestDetectCgroupVersion(t *testing.T) {
 }
 
 func TestDetectUserCgroupPath(t *testing.T) {
-	path := DetectUserCgroupPath()
-	if path == "" {
-		t.Error("DetectUserCgroupPath() returned empty path")
-		return
-	}
-	if len(path) > 0 && path[0] != '/' {
-		t.Errorf("DetectUserCgroupPath() = %q, want absolute path starting with /", path)
-	}
+    uid := os.Getuid()
+    expected := fmt.Sprintf("/sys/fs/cgroup/user.slice/user-%d.slice/user@%d.service/user.slice/", uid, uid)
+
+    path := DetectUserCgroupPath()
+    if path != expected {
+        t.Errorf("DetectUserCgroupPath() = %q, want %q", path, expected)
+    }
 }
 
 func TestIsCgroupWritable(t *testing.T) {

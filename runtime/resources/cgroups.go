@@ -1,5 +1,10 @@
 package resources
 
+import (
+	"os"
+	"fmt"
+)
+
 type ResourceLimits struct {
 	MemoryBytes int64   // 0 = unlimited
 	CPUCores    float64 // 0 = unlimited
@@ -29,5 +34,8 @@ func ParseMemoryString(s string) (int64, bool) { return -1, false }
 func ParseCPUString(s string) (string, bool)   { return "", false }
 func ParsePIDsString(s string) (int, bool)     { return 0, false }
 func DetectCgroupVersion() string              { return "" }
-func DetectUserCgroupPath() string             { return "" }
-func IsCgroupWritable(path string) bool        { return false }
+func DetectUserCgroupPath() string {
+	currentUid := os.Getuid()
+	return fmt.Sprintf("/sys/fs/cgroup/user.slice/user-%d.slice/user@%d.service/user.slice/", currentUid, currentUid)
+}
+func IsCgroupWritable(path string) bool { return false }
