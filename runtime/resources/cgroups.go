@@ -1,8 +1,9 @@
 package resources
 
 import (
-	"os"
 	"fmt"
+	"golang.org/x/sys/unix"
+	"os"
 )
 
 type ResourceLimits struct {
@@ -38,4 +39,6 @@ func DetectUserCgroupPath() string {
 	currentUid := os.Getuid()
 	return fmt.Sprintf("/sys/fs/cgroup/user.slice/user-%d.slice/user@%d.service/user.slice/", currentUid, currentUid)
 }
-func IsCgroupWritable(path string) bool { return false }
+func IsCgroupWritable(path string) bool {
+	return unix.Access(path, unix.W_OK) == nil
+}
