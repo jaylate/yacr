@@ -183,7 +183,13 @@ func ParsePIDsString(s string) (int, bool) {
 	return num, true
 }
 
-func DetectCgroupVersion() string { return "" }
+func DetectCgroupVersion() string {
+	data, _ := os.ReadFile("/proc/mounts")
+	if strings.Contains(string(data), "cgroup2") {
+		return "v2"
+	}
+	return "v1"
+}
 func DetectUserCgroupPath() string {
 	currentUid := os.Getuid()
 	return fmt.Sprintf("/sys/fs/cgroup/user.slice/user-%d.slice/user@%d.service/user.slice", currentUid, currentUid)
