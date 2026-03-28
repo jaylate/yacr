@@ -65,17 +65,21 @@ func parseLimits(cfg *cmd.RunConfig) (resources.ResourceLimits, error) {
 	}
 
 	if cfg.CPUCores != "" {
-		cpuStr, ok := resources.ParseCPUString(cfg.CPUCores)
-		if !ok {
-			return limits, fmt.Errorf("invalid CPU value: %s (use format like 0.5, 2, or max)", cfg.CPUCores)
+		if cfg.CPUCores == "max" {
+			limits.CPUCores = 0 // 0 means no limit
+		} else {
+			cpuStr, ok := resources.ParseCPUString(cfg.CPUCores)
+			if !ok {
+				return limits, fmt.Errorf("invalid CPU value: %s (use format like 0.5, 2, or max)", cfg.CPUCores)
+			}
+			// ParseCPUString returns "<quota> 100000" for numeric inputs
+			var quota int
+			_, err := fmt.Sscanf(cpuStr, "%d", &quota)
+			if err != nil {
+				return limits, fmt.Errorf("invalid CPU value: %s", cfg.CPUCores)
+			}
+			limits.CPUCores = float64(quota) / 100000
 		}
-		// ParseCPUString returns "100000 100000" for "1.0", need to extract the quota
-		var quota int
-		_, err := fmt.Sscanf(cpuStr, "%d", &quota)
-		if err != nil {
-			return limits, fmt.Errorf("invalid CPU value: %s", cfg.CPUCores)
-		}
-		limits.CPUCores = float64(quota) / 100000
 	}
 
 	if cfg.PIDsMax != "" {

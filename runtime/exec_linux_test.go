@@ -16,7 +16,7 @@ func TestLinuxExecutor_SysProcAttr(t *testing.T) {
 	cmd, err := executor.setupContainer("/bin/sh", []string{"-l"})
 
 	if err != nil {
-		t.Errorf("Failed to setup container: %v", err)
+		t.Fatalf("Failed to setup container: %v", err)
 	}
 
 	if cmd.Path != "./bin/init" {
@@ -108,7 +108,7 @@ func TestLinuxExecutor_ConfigToArgs(t *testing.T) {
 
 			cmd, err := executor.setupContainer(tt.command, tt.args)
 			if err != nil {
-				t.Errorf("Failed to setup container: %v", err)
+				t.Fatalf("Failed to setup container: %v", err)
 			}
 
 			for i, want := range tt.wantInitArgs {

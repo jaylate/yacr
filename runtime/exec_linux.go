@@ -62,7 +62,11 @@ func NewLinuxExecutorWithCgroups(cfg *ContainerConfig, mgr resources.CgroupManag
 func (e *LinuxExecutor) Execute(command string, args ...string) error {
 	// Use ContainerID from config if provided, otherwise generate one
 	if e.cfg.ContainerID == "" {
-		e.cfg.ContainerID = resources.GenerateContainerID()
+		containerID, err := resources.GenerateContainerID()
+		if err != nil {
+			return fmt.Errorf("failed to generate container ID: %w", err)
+		}
+		e.cfg.ContainerID = containerID
 	}
 	containerID := e.cfg.ContainerID
 
@@ -76,6 +80,9 @@ func (e *LinuxExecutor) Execute(command string, args ...string) error {
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Start(); err != nil {
+		if e.mgr != nil {
+			e.mgr.Destroy(containerID)
+		}
 		return fmt.Errorf("failed to start child process: %w", err)
 	}
 
@@ -83,21 +90,29 @@ func (e *LinuxExecutor) Execute(command string, args ...string) error {
 		if err := e.mgr.AddProcess(containerID, cmd.Process.Pid); err != nil {
 			cmd.Process.Kill()
 			cmd.Wait()
+			if destroyErr := e.mgr.Destroy(containerID); destroyErr != nil {
+				return fmt.Errorf("failed to add process to cgroup: %w (additionally failed to destroy cgroup: %v)", err, destroyErr)
+			}
 			return fmt.Errorf("failed to add process to cgroup: %w", err)
 		}
 	}
 
 	if err := cmd.Wait(); err != nil {
-		// Cleanup cgroup on error
+		var destroyErr error
 		if e.mgr != nil {
-			e.mgr.Destroy(containerID)
+			destroyErr = e.mgr.Destroy(containerID)
+		}
+		if destroyErr != nil {
+			return fmt.Errorf("child process exited with error: %w (additionally failed to destroy cgroup: %v)", err, destroyErr)
 		}
 		return fmt.Errorf("child process exited with error: %w", err)
 	}
 
 	// Cleanup cgroup on success
 	if e.mgr != nil {
-		e.mgr.Destroy(containerID)
+		if err := e.mgr.Destroy(containerID); err != nil {
+			return fmt.Errorf("failed to destroy cgroup for container %s: %w", containerID, err)
+		}
 	}
 
 	return nil

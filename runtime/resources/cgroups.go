@@ -4,19 +4,23 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"golang.org/x/sys/unix"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
-func GenerateContainerID() string {
+func GenerateContainerID() (string, error) {
 	b := make([]byte, 4)
-	rand.Read(b)
-	return fmt.Sprintf("yacr-%d-%s", time.Now().UnixNano(), hex.EncodeToString(b))
+	if _, err := io.ReadFull(rand.Reader, b); err != nil {
+		return "", fmt.Errorf("failed to generate random container ID: %w", err)
+	}
+	return fmt.Sprintf("yacr-%d-%s", time.Now().UnixNano(), hex.EncodeToString(b)), nil
 }
 
 type ResourceLimits struct {
@@ -209,12 +213,31 @@ func (m *CgroupsManager) Destroy(containerId string) error {
 		return fmt.Errorf("failed to read cgroup.procs: %w", err)
 	}
 
-	// Migrate processes to parent cgroup
+	// Migrate processes to parent cgroup by writing one PID at a time
 	if len(data) > 0 {
-		parentPath := m.basePath
-		err = os.WriteFile(filepath.Join(parentPath, "cgroup.procs"), data, 0644)
-		if err != nil {
-			return fmt.Errorf("failed to migrate processes to parent cgroup: %w", err)
+		var parentPath string
+		if path == m.basePath {
+			// Destroying the runtime cgroup itself; migrate to the real parent
+			parentPath = filepath.Dir(m.basePath)
+		} else {
+			parentPath = m.basePath
+		}
+		lines := strings.Split(string(data), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+
+			pid, err := strconv.Atoi(line)
+			if err != nil {
+				return fmt.Errorf("invalid PID %q in cgroup.procs: %w", line, err)
+			}
+
+			pidData := []byte(fmt.Sprintf("%d\n", pid))
+			if err := os.WriteFile(filepath.Join(parentPath, "cgroup.procs"), pidData, 0644); err != nil {
+				return fmt.Errorf("failed to migrate PID %d to parent cgroup: %w", pid, err)
+			}
 		}
 	}
 
@@ -239,7 +262,10 @@ func ParseMemoryString(s string) (int64, bool) {
 	if lastChar >= '0' && lastChar <= '9' {
 		// Plain number (e.g., "1024")
 		num, err := strconv.ParseInt(s, 10, 64)
-		return num, err == nil
+		if err != nil || num <= 0 {
+			return 0, false
+		}
+		return num, true
 	}
 
 	// Has unit suffix
@@ -256,7 +282,7 @@ func ParseMemoryString(s string) (int64, bool) {
 	}
 
 	size, err := strconv.ParseInt(s[:len(s)-1], 10, 64)
-	if err != nil {
+	if err != nil || size <= 0 {
 		return 0, false
 	}
 	return size * unitValue, true
@@ -268,7 +294,7 @@ func ParseCPUString(s string) (string, bool) {
 	}
 
 	num, err := strconv.ParseFloat(s, 64)
-	if err != nil || num <= 0 {
+	if err != nil || num <= 0 || math.IsNaN(num) || math.IsInf(num, 0) {
 		return "", false
 	}
 
