@@ -7,6 +7,7 @@ import (
 
 	"github.com/jaylate/yacr/cmd"
 	"github.com/jaylate/yacr/runtime"
+	"github.com/jaylate/yacr/runtime/resources"
 )
 
 type runtimeRunner func(command string, args []string, cfg *runtime.ContainerConfig) error
@@ -35,6 +36,11 @@ func run(args []string, stderr io.Writer, runner runtimeRunner) int {
 	containerCfg := &runtime.ContainerConfig{
 		RootFS:   cfg.RootFS,
 		Hostname: cfg.Hostname,
+		Limits: resources.ResourceLimits{
+			MemoryBytes: 0,
+			CPUCores:    0,
+			PIDsMax:     0,
+		},
 	}
 
 	if err := runner(cfg.Command, cfg.Args, containerCfg); err != nil {
