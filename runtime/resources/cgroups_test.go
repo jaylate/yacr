@@ -83,7 +83,7 @@ func TestDetectCgroupVersion(t *testing.T) {
 
 func TestDetectUserCgroupPath(t *testing.T) {
 	uid := os.Getuid()
-	expected := fmt.Sprintf("/sys/fs/cgroup/user.slice/user-%d.slice/user@%d.service/user.slice/", uid, uid)
+	expected := fmt.Sprintf("/sys/fs/cgroup/user.slice/user-%d.slice/user@%d.service/user.slice", uid, uid)
 
 	path := DetectUserCgroupPath()
 	if path != expected {
@@ -116,14 +116,14 @@ func TestCgroupsManager_Create(t *testing.T) {
 		t.Fatalf("Create() failed: %v", err)
 	}
 
-	// Check directory exists (manager adds "yacr-" prefix)
-	_, err = os.Stat(dir + "/yacr-test-container")
+	// Check directory exists
+	_, err = os.Stat(dir + "/test-container")
 	if os.IsNotExist(err) {
-		t.Fatalf("directory not created: %s", dir+"/yacr-test-container")
+		t.Fatalf("directory not created: %s", dir+"/test-container")
 	}
 
 	// Check memory.max
-	data, err := os.ReadFile(dir + "/yacr-test-container/memory.max")
+	data, err := os.ReadFile(dir + "/test-container/memory.max")
 	if err != nil {
 		t.Fatalf("failed to read memory.max: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestCgroupsManager_Create(t *testing.T) {
 	}
 
 	// Check cpu.max
-	data, err = os.ReadFile(dir + "/yacr-test-container/cpu.max")
+	data, err = os.ReadFile(dir + "/test-container/cpu.max")
 	if err != nil {
 		t.Fatalf("failed to read cpu.max: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestCgroupsManager_Create(t *testing.T) {
 	}
 
 	// Check pids.max
-	data, err = os.ReadFile(dir + "/yacr-test-container/pids.max")
+	data, err = os.ReadFile(dir + "/test-container/pids.max")
 	if err != nil {
 		t.Fatalf("failed to read pids.max: %v", err)
 	}
@@ -163,12 +163,12 @@ func TestCgroupsManager_AddProcess(t *testing.T) {
 		t.Fatalf("Create() failed: %v", err)
 	}
 
-	err = mgr.AddProcess(25)
+	err = mgr.AddProcess("test-container", 25)
 	if err != nil {
 		t.Fatalf("AddProcess() failed: %v", err)
 	}
 
-	data, err := os.ReadFile(dir + "/yacr-test-container/cgroup.procs")
+	data, err := os.ReadFile(dir + "/test-container/cgroup.procs")
 	if err != nil {
 		t.Fatalf("failed to read cgroup.procs: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestCgroupsManager_Destroy(t *testing.T) {
 	}
 
 	// Verify directory exists
-	_, err = os.Stat(dir + "/yacr-test-container")
+	_, err = os.Stat(dir + "/test-container")
 	if os.IsNotExist(err) {
 		t.Fatal("directory should exist before Destroy")
 	}
@@ -200,7 +200,7 @@ func TestCgroupsManager_Destroy(t *testing.T) {
 	}
 
 	// Verify directory removed
-	_, err = os.Stat(dir + "/yacr-test-container")
+	_, err = os.Stat(dir + "/test-container")
 	if !os.IsNotExist(err) {
 		t.Fatalf("directory should be removed after Destroy")
 	}
@@ -221,7 +221,7 @@ func TestCgroupsManager_UnlimitedValues(t *testing.T) {
 	}
 
 	// Check memory.max writes "max" when MemoryBytes is 0
-	data, err := os.ReadFile(dir + "/yacr-test-container/memory.max")
+	data, err := os.ReadFile(dir + "/test-container/memory.max")
 	if err != nil {
 		t.Fatalf("failed to read memory.max: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestCgroupsManager_UnlimitedValues(t *testing.T) {
 	}
 
 	// Check cpu.max writes "max" when CPUCores is 0
-	data, err = os.ReadFile(dir + "/yacr-test-container/cpu.max")
+	data, err = os.ReadFile(dir + "/test-container/cpu.max")
 	if err != nil {
 		t.Fatalf("failed to read cpu.max: %v", err)
 	}
@@ -239,7 +239,7 @@ func TestCgroupsManager_UnlimitedValues(t *testing.T) {
 	}
 
 	// Check pids.max writes "max" when PIDsMax is 0
-	data, err = os.ReadFile(dir + "/yacr-test-container/pids.max")
+	data, err = os.ReadFile(dir + "/test-container/pids.max")
 	if err != nil {
 		t.Fatalf("failed to read pids.max: %v", err)
 	}
