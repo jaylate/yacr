@@ -1,8 +1,8 @@
 # yacr
 
-Yet Another Container Runtime - a minimal container runtime written in Go
+Yet Another Container Runtime - a minimal container runtime written in Go. Run commands in isolated containers with resource limits.
 
-## CLI Usage
+## Quick Start
 
 ```bash
 make build
@@ -13,11 +13,11 @@ make build
 
 ### Options
 
-- `--hostname` - Set container hostname (default: `container`)
-- `--rootfs` - Set root filesystem path (default: `rootfs`)
-- `--memory` - Set memory limit (e.g., `100M`, `1G`, `max`)
-- `--cpus` - Set CPU limit (e.g., `0.5`, `2`, `max`)
-- `--pids` - Set PID limit (e.g., `50`, `max`)
+- `--hostname` - Container hostname (default: `container`)
+- `--rootfs` - Root filesystem path (default: `rootfs`)
+- `--memory` - Memory limit (e.g., `100M`, `1G`, `max`)
+- `--cpus` - CPU limit (e.g., `0.5`, `2`, `max`)
+- `--pids` - PID limit (e.g., `50`, `max`)
 
 ### Examples
 
@@ -35,39 +35,67 @@ make build
 ./bin/yacr --hostname myhost --rootfs /path/to/rootfs --memory 1G --cpus 4 --pids 100 run /bin/sh
 ```
 
-## Library Usage
+## Use as a Library
 
-Import the runtime package to use yacr as a library:
+Import the runtime package:
 
 ```go
 import (
     "github.com/jaylate/yacr/runtime"
-    "github.com/jaylate/yacr/runtime/resources"  // needed for ResourceLimits
+    "github.com/jaylate/yacr/runtime/resources"
 )
 ```
 
-### Run
-
-Execute a command in an isolated environment:
+### Simple: Run a command
 
 ```go
-// Basic usage
+// Run a command in a container
 runtime.Run("/bin/sh", nil, nil)
 
-// With command arguments
+// With arguments
 runtime.Run("/bin/sh", []string{"-c", "echo hello"}, nil)
 
-// With configuration
+// With resource limits
 runtime.Run("/bin/sh", nil, &runtime.ContainerConfig{
-    ContainerID: "my-container",  // optional, auto-generated if empty
-    RootFS:     "/path/to/rootfs",
-    Hostname:   "myhost",
+    RootFS:   "/path/to/rootfs",
+    Hostname: "myhost",
     Limits: resources.ResourceLimits{
-        MemoryBytes: 512 * 1024 * 1024,  // 512M
+        MemoryBytes: 512 * 1024 * 1024,
         CPUCores:    2.0,
         PIDsMax:     50,
     },
 })
+```
+
+### Advanced: Create → Start → Delete
+
+For more control, use the Create/Start/Delete lifecycle:
+
+```go
+// Create container (sets up cgroups and namespaces)
+container, err := runtime.Create(
+    runtime.ContainerConfig{
+        RootFS:   "/path/to/rootfs",
+        Hostname: "myhost",
+        Limits: resources.ResourceLimits{
+            MemoryBytes: 512 * 1024 * 1024,
+        },
+    },
+    nil,  // cgroup manager
+    nil,  // namespace setup
+    nil,  // ID generator
+)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Start the container
+if err := container.Start("/bin/sh", "-c", "echo hello"); err != nil {
+    log.Fatal(err)
+}
+
+// Cleanup (optional - automatically called after process exits)
+container.Delete()
 ```
 
 ## Configuration
@@ -80,7 +108,7 @@ runtime.Run("/bin/sh", nil, &runtime.ContainerConfig{
 | InitBinary | string | Path to init binary | "./bin/init" |
 | RootFS | string | Root filesystem path | "rootfs" |
 | Hostname | string | Container hostname | "container" |
-| Limits | ResourceLimits | Cgroup resource limits | unlimited |
+| Limits | ResourceLimits | Resource limits | unlimited |
 
 ### ResourceLimits
 

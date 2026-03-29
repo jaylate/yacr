@@ -6,17 +6,25 @@ import (
 )
 
 func TestLinuxExecutor_SysProcAttr(t *testing.T) {
-	executor := NewLinuxExecutor(&ContainerConfig{
+	container, err := Create(ContainerConfig{
 		ContainerID: "test-container",
 		InitBinary:  "./bin/init",
 		RootFS:      "rootfs",
 		Hostname:    "container",
-	})
-
-	cmd, err := executor.setupContainer("/bin/sh", []string{"-l"})
+	}, nil, nil, nil)
 
 	if err != nil {
-		t.Fatalf("Failed to setup container: %v", err)
+		t.Fatalf("Failed to create container: %v", err)
+	}
+
+	err = container.Start("/bin/sh", "-l")
+	if err == nil {
+		t.Fatal("Expected error from Start (no real init binary), got nil")
+	}
+
+	cmd := container.cmd
+	if cmd == nil {
+		t.Fatal("cmd should not be nil after Start")
 	}
 
 	if cmd.Path != "./bin/init" {
@@ -104,11 +112,19 @@ func TestLinuxExecutor_ConfigToArgs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			executor := NewLinuxExecutor(tt.cfg)
-
-			cmd, err := executor.setupContainer(tt.command, tt.args)
+			container, err := Create(*tt.cfg, nil, nil, nil)
 			if err != nil {
-				t.Fatalf("Failed to setup container: %v", err)
+				t.Fatalf("Failed to create container: %v", err)
+			}
+
+			err = container.Start(tt.command, tt.args...)
+			if err == nil {
+				t.Fatal("Expected error from Start (no real init binary), got nil")
+			}
+
+			cmd := container.cmd
+			if cmd == nil {
+				t.Fatal("cmd should not be nil after Start")
 			}
 
 			for i, want := range tt.wantInitArgs {
