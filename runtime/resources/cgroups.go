@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -246,72 +245,6 @@ func (m *CgroupsManager) Destroy(containerId string) error {
 }
 func (m *CgroupsManager) DestroyRuntime() error {
 	return m.Destroy("")
-}
-
-func ParseMemoryString(s string) (int64, bool) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return 0, false
-	}
-	if s == "max" {
-		return 0, true
-	}
-
-	// Check if last char is a unit
-	lastChar := s[len(s)-1]
-	if lastChar >= '0' && lastChar <= '9' {
-		// Plain number (e.g., "1024")
-		num, err := strconv.ParseInt(s, 10, 64)
-		if err != nil || num <= 0 {
-			return 0, false
-		}
-		return num, true
-	}
-
-	// Has unit suffix
-	unitTable := map[string]int64{
-		"B": 1,
-		"K": 1024,
-		"M": 1024 * 1024,
-		"G": 1024 * 1024 * 1024,
-		"T": 1024 * 1024 * 1024 * 1024,
-	}
-	unitValue, ok := unitTable[string(lastChar)]
-	if !ok {
-		return 0, false
-	}
-
-	size, err := strconv.ParseInt(s[:len(s)-1], 10, 64)
-	if err != nil || size <= 0 {
-		return 0, false
-	}
-	return size * unitValue, true
-}
-func ParseCPUString(s string) (string, bool) {
-	s = strings.TrimSpace(s)
-	if s == "max" {
-		return "max 100000", true
-	}
-
-	num, err := strconv.ParseFloat(s, 64)
-	if err != nil || num <= 0 || math.IsNaN(num) || math.IsInf(num, 0) {
-		return "", false
-	}
-
-	quota := int64(math.Round(num * 100000))
-	return fmt.Sprintf("%d 100000", quota), true
-}
-func ParsePIDsString(s string) (int, bool) {
-	s = strings.TrimSpace(s)
-	if s == "max" {
-		return 0, true
-	}
-
-	num, err := strconv.Atoi(s)
-	if err != nil || num <= 0 {
-		return 0, false
-	}
-	return num, true
 }
 
 func DetectCgroupVersion() string {

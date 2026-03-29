@@ -33,7 +33,12 @@ func run(args []string, stderr io.Writer, runner runtimeRunner) int {
 		return 1
 	}
 
-	limits, err := parseLimits(cfg)
+	parser := resources.NewLimitParser()
+	limits, err := parser.ParseConfig(resources.LimitsConfig{
+		Memory:   cfg.Memory,
+		CPUCores: cfg.CPUCores,
+		PIDsMax:  cfg.PIDsMax,
+	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -51,44 +56,4 @@ func run(args []string, stderr io.Writer, runner runtimeRunner) int {
 	}
 
 	return 0
-}
-
-func parseLimits(cfg *cmd.RunConfig) (resources.ResourceLimits, error) {
-	limits := resources.ResourceLimits{}
-
-	if cfg.Memory != "" {
-		memoryBytes, ok := resources.ParseMemoryString(cfg.Memory)
-		if !ok {
-			return limits, fmt.Errorf("invalid memory value: %s (use format like 100M, 1G, or max)", cfg.Memory)
-		}
-		limits.MemoryBytes = memoryBytes
-	}
-
-	if cfg.CPUCores != "" {
-		if cfg.CPUCores == "max" {
-			limits.CPUCores = 0 // 0 means no limit
-		} else {
-			cpuStr, ok := resources.ParseCPUString(cfg.CPUCores)
-			if !ok {
-				return limits, fmt.Errorf("invalid CPU value: %s (use format like 0.5, 2, or max)", cfg.CPUCores)
-			}
-			// ParseCPUString returns "<quota> 100000" for numeric inputs
-			var quota int
-			_, err := fmt.Sscanf(cpuStr, "%d", &quota)
-			if err != nil {
-				return limits, fmt.Errorf("invalid CPU value: %s", cfg.CPUCores)
-			}
-			limits.CPUCores = float64(quota) / 100000
-		}
-	}
-
-	if cfg.PIDsMax != "" {
-		pidsMax, ok := resources.ParsePIDsString(cfg.PIDsMax)
-		if !ok {
-			return limits, fmt.Errorf("invalid PIDs value: %s (use format like 50 or max)", cfg.PIDsMax)
-		}
-		limits.PIDsMax = pidsMax
-	}
-
-	return limits, nil
 }
