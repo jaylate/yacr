@@ -7,12 +7,17 @@ import (
 
 func TestLinuxExecutor_SysProcAttr(t *testing.T) {
 	executor := NewLinuxExecutor(&ContainerConfig{
-		InitBinary: "./bin/init",
-		RootFS:     "rootfs",
-		Hostname:   "container",
+		ContainerID: "test-container",
+		InitBinary:  "./bin/init",
+		RootFS:      "rootfs",
+		Hostname:    "container",
 	})
 
-	cmd := executor.setupContainer("/bin/sh", []string{"-l"})
+	cmd, err := executor.setupContainer("/bin/sh", []string{"-l"})
+
+	if err != nil {
+		t.Fatalf("Failed to setup container: %v", err)
+	}
 
 	if cmd.Path != "./bin/init" {
 		t.Errorf("cmd.Path = %q, want %q", cmd.Path, "./bin/init")
@@ -66,7 +71,8 @@ func TestLinuxExecutor_ConfigToArgs(t *testing.T) {
 		{
 			name: "simple command",
 			cfg: &ContainerConfig{
-				InitBinary: "./bin/init",
+				ContainerID: "test-container",
+				InitBinary:  "./bin/init",
 			},
 			command:      "/bin/sh",
 			args:         []string{},
@@ -75,7 +81,8 @@ func TestLinuxExecutor_ConfigToArgs(t *testing.T) {
 		{
 			name: "command with args",
 			cfg: &ContainerConfig{
-				InitBinary: "./bin/init",
+				ContainerID: "test-container",
+				InitBinary:  "./bin/init",
 			},
 			command:      "/bin/sh",
 			args:         []string{"-l", "-a"},
@@ -84,9 +91,10 @@ func TestLinuxExecutor_ConfigToArgs(t *testing.T) {
 		{
 			name: "rootfs and hostname passed to init",
 			cfg: &ContainerConfig{
-				InitBinary: "./bin/init",
-				RootFS:     "/custom/rootfs",
-				Hostname:   "myhost",
+				ContainerID: "test-container",
+				InitBinary:  "./bin/init",
+				RootFS:      "/custom/rootfs",
+				Hostname:    "myhost",
 			},
 			command:      "/bin/sh",
 			args:         []string{},
@@ -98,7 +106,10 @@ func TestLinuxExecutor_ConfigToArgs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			executor := NewLinuxExecutor(tt.cfg)
 
-			cmd := executor.setupContainer(tt.command, tt.args)
+			cmd, err := executor.setupContainer(tt.command, tt.args)
+			if err != nil {
+				t.Fatalf("Failed to setup container: %v", err)
+			}
 
 			for i, want := range tt.wantInitArgs {
 				if cmd.Args[i] != want {

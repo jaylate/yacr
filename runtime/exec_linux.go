@@ -5,12 +5,16 @@ import (
 	"os"
 	"os/exec"
 	"syscall"
+
+	"github.com/jaylate/yacr/runtime/resources"
 )
 
 type ContainerConfig struct {
-	InitBinary string
-	RootFS     string
-	Hostname   string
+	ContainerID string // Optional: if empty, one will be generated
+	InitBinary  string
+	RootFS      string
+	Hostname    string
+	Limits      resources.ResourceLimits
 }
 
 func DefaultContainerConfig() *ContainerConfig {
@@ -23,6 +27,7 @@ func DefaultContainerConfig() *ContainerConfig {
 
 type LinuxExecutor struct {
 	cfg ContainerConfig
+	mgr resources.CgroupManager
 }
 
 func NewLinuxExecutor(cfg *ContainerConfig) *LinuxExecutor {
@@ -41,28 +46,85 @@ func NewLinuxExecutor(cfg *ContainerConfig) *LinuxExecutor {
 	if cfg.Hostname != "" {
 		executorCfg.Hostname = cfg.Hostname
 	}
-	return &LinuxExecutor{cfg: executorCfg}
+	if cfg.Limits.MemoryBytes != 0 || cfg.Limits.CPUCores != 0 || cfg.Limits.PIDsMax != 0 {
+		executorCfg.Limits = cfg.Limits
+	}
+	return &LinuxExecutor{cfg: executorCfg, mgr: nil}
+}
+
+func NewLinuxExecutorWithCgroups(cfg *ContainerConfig, mgr resources.CgroupManager) *LinuxExecutor {
+	executor := NewLinuxExecutor(cfg)
+	executor.mgr = mgr
+
+	return executor
 }
 
 func (e *LinuxExecutor) Execute(command string, args ...string) error {
-	cmd := e.setupContainer(command, args)
+	// Use ContainerID from config if provided, otherwise generate one
+	if e.cfg.ContainerID == "" {
+		containerID, err := resources.GenerateContainerID()
+		if err != nil {
+			return fmt.Errorf("failed to generate container ID: %w", err)
+		}
+		e.cfg.ContainerID = containerID
+	}
+	containerID := e.cfg.ContainerID
+
+	cmd, err := e.setupContainer(command, args)
+	if err != nil {
+		return fmt.Errorf("failed to setup container: %w", err)
+	}
 
 	cmd.Stdout = os.Stdout
 	cmd.Stdin = os.Stdin
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("Failed to start child process: %w", err)
+		if e.mgr != nil {
+			e.mgr.Destroy(containerID)
+		}
+		return fmt.Errorf("failed to start child process: %w", err)
+	}
+
+	if e.mgr != nil && cmd.Process != nil {
+		if err := e.mgr.AddProcess(containerID, cmd.Process.Pid); err != nil {
+			cmd.Process.Kill()
+			cmd.Wait()
+			if destroyErr := e.mgr.Destroy(containerID); destroyErr != nil {
+				return fmt.Errorf("failed to add process to cgroup: %w (additionally failed to destroy cgroup: %v)", err, destroyErr)
+			}
+			return fmt.Errorf("failed to add process to cgroup: %w", err)
+		}
 	}
 
 	if err := cmd.Wait(); err != nil {
-		return fmt.Errorf("Child process exited with error: %w", err)
+		var destroyErr error
+		if e.mgr != nil {
+			destroyErr = e.mgr.Destroy(containerID)
+		}
+		if destroyErr != nil {
+			return fmt.Errorf("child process exited with error: %w (additionally failed to destroy cgroup: %v)", err, destroyErr)
+		}
+		return fmt.Errorf("child process exited with error: %w", err)
+	}
+
+	// Cleanup cgroup on success
+	if e.mgr != nil {
+		if err := e.mgr.Destroy(containerID); err != nil {
+			return fmt.Errorf("failed to destroy cgroup for container %s: %w", containerID, err)
+		}
 	}
 
 	return nil
 }
 
-func (e *LinuxExecutor) setupContainer(command string, args []string) *exec.Cmd {
+func (e *LinuxExecutor) setupContainer(command string, args []string) (*exec.Cmd, error) {
+	if e.mgr != nil {
+		if err := e.mgr.Create(e.cfg.ContainerID, e.cfg.Limits); err != nil {
+			return nil, err
+		}
+	}
+
 	initArgs := []string{
 		e.cfg.InitBinary,
 		"--hostname", e.cfg.Hostname,
@@ -92,5 +154,5 @@ func (e *LinuxExecutor) setupContainer(command string, args []string) *exec.Cmd 
 		},
 	}
 
-	return cmd
+	return cmd, nil
 }

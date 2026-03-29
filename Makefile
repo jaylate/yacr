@@ -30,7 +30,7 @@ run: build
 	$(YACR) run /bin/sh
 
 test:
-	go test -v ./...
+	go test ./...
 
 clean:
 	go clean

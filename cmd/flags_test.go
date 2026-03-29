@@ -21,6 +21,9 @@ func TestParseArgs(t *testing.T) {
 				Args:     []string{},
 				RootFS:   "rootfs",
 				Hostname: "container",
+				Memory:   "",
+				CPUCores: "",
+				PIDsMax:  "",
 				Help:     false,
 			},
 			wantError: false,
@@ -33,6 +36,9 @@ func TestParseArgs(t *testing.T) {
 				Args:     []string{"-l", "-a"},
 				RootFS:   "rootfs",
 				Hostname: "container",
+				Memory:   "",
+				CPUCores: "",
+				PIDsMax:  "",
 				Help:     false,
 			},
 			wantError: false,
@@ -63,6 +69,9 @@ func TestParseArgs(t *testing.T) {
 				Args:     []string{},
 				RootFS:   "rootfs",
 				Hostname: "container",
+				Memory:   "",
+				CPUCores: "",
+				PIDsMax:  "",
 				Help:     true,
 			},
 			wantError: false,
@@ -75,6 +84,9 @@ func TestParseArgs(t *testing.T) {
 				Args:     []string{},
 				RootFS:   "rootfs",
 				Hostname: "container",
+				Memory:   "",
+				CPUCores: "",
+				PIDsMax:  "",
 				Help:     true,
 			},
 			wantError: false,
@@ -87,6 +99,9 @@ func TestParseArgs(t *testing.T) {
 				Args:     []string{},
 				RootFS:   "rootfs",
 				Hostname: "myhost",
+				Memory:   "",
+				CPUCores: "",
+				PIDsMax:  "",
 				Help:     false,
 			},
 			wantError: false,
@@ -99,6 +114,9 @@ func TestParseArgs(t *testing.T) {
 				Args:     []string{},
 				RootFS:   "/path/to/rootfs",
 				Hostname: "container",
+				Memory:   "",
+				CPUCores: "",
+				PIDsMax:  "",
 				Help:     false,
 			},
 			wantError: false,
@@ -111,6 +129,9 @@ func TestParseArgs(t *testing.T) {
 				Args:     []string{"-l"},
 				RootFS:   "/tmp/root",
 				Hostname: "myhost",
+				Memory:   "",
+				CPUCores: "",
+				PIDsMax:  "",
 				Help:     false,
 			},
 			wantError: false,
@@ -123,6 +144,69 @@ func TestParseArgs(t *testing.T) {
 				Args:     []string{"-l"},
 				RootFS:   "rootfs",
 				Hostname: "container",
+				Memory:   "",
+				CPUCores: "",
+				PIDsMax:  "",
+				Help:     false,
+			},
+			wantError: false,
+		},
+		{
+			name: "memory flag",
+			args: []string{"yacr", "--memory", "512M", "run", "/bin/sh"},
+			wantCfg: &RunConfig{
+				Command:  "/bin/sh",
+				Args:     []string{},
+				RootFS:   "rootfs",
+				Hostname: "container",
+				Memory:   "512M",
+				CPUCores: "",
+				PIDsMax:  "",
+				Help:     false,
+			},
+			wantError: false,
+		},
+		{
+			name: "cpus flag",
+			args: []string{"yacr", "--cpus", "2", "run", "/bin/sh"},
+			wantCfg: &RunConfig{
+				Command:  "/bin/sh",
+				Args:     []string{},
+				RootFS:   "rootfs",
+				Hostname: "container",
+				Memory:   "",
+				CPUCores: "2",
+				PIDsMax:  "",
+				Help:     false,
+			},
+			wantError: false,
+		},
+		{
+			name: "pids flag",
+			args: []string{"yacr", "--pids", "100", "run", "/bin/sh"},
+			wantCfg: &RunConfig{
+				Command:  "/bin/sh",
+				Args:     []string{},
+				RootFS:   "rootfs",
+				Hostname: "container",
+				Memory:   "",
+				CPUCores: "",
+				PIDsMax:  "100",
+				Help:     false,
+			},
+			wantError: false,
+		},
+		{
+			name: "all resource flags",
+			args: []string{"yacr", "--memory", "1G", "--cpus", "4", "--pids", "50", "run", "/bin/sh"},
+			wantCfg: &RunConfig{
+				Command:  "/bin/sh",
+				Args:     []string{},
+				RootFS:   "rootfs",
+				Hostname: "container",
+				Memory:   "1G",
+				CPUCores: "4",
+				PIDsMax:  "50",
 				Help:     false,
 			},
 			wantError: false,
@@ -156,6 +240,15 @@ func TestParseArgs(t *testing.T) {
 			}
 			if cfg.Help != tt.wantCfg.Help {
 				t.Errorf("Help = %v, want %v", cfg.Help, tt.wantCfg.Help)
+			}
+			if cfg.Memory != tt.wantCfg.Memory {
+				t.Errorf("Memory = %q, want %q", cfg.Memory, tt.wantCfg.Memory)
+			}
+			if cfg.CPUCores != tt.wantCfg.CPUCores {
+				t.Errorf("CPUCores = %q, want %q", cfg.CPUCores, tt.wantCfg.CPUCores)
+			}
+			if cfg.PIDsMax != tt.wantCfg.PIDsMax {
+				t.Errorf("PIDsMax = %q, want %q", cfg.PIDsMax, tt.wantCfg.PIDsMax)
 			}
 			if len(cfg.Args) != len(tt.wantCfg.Args) {
 				t.Errorf("Args length = %d, want %d", len(cfg.Args), len(tt.wantCfg.Args))
@@ -209,6 +302,21 @@ func TestParseArgs_MissingFlagValues(t *testing.T) {
 			name:        "rootfs followed by terminator",
 			args:        []string{"yacr", "--rootfs", "--", "run", "/bin/sh"},
 			wantMessage: "Missing value for --rootfs",
+		},
+		{
+			name:        "missing memory value",
+			args:        []string{"yacr", "--memory"},
+			wantMessage: "Missing value for --memory",
+		},
+		{
+			name:        "missing cpus value",
+			args:        []string{"yacr", "--cpus"},
+			wantMessage: "Missing value for --cpus",
+		},
+		{
+			name:        "missing pids value",
+			args:        []string{"yacr", "--pids"},
+			wantMessage: "Missing value for --pids",
 		},
 	}
 
