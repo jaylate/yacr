@@ -1,26 +1,14 @@
 package resources
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"golang.org/x/sys/unix"
 )
-
-func GenerateContainerID() (string, error) {
-	b := make([]byte, 4)
-	if _, err := io.ReadFull(rand.Reader, b); err != nil {
-		return "", fmt.Errorf("failed to generate random container ID: %w", err)
-	}
-	return fmt.Sprintf("yacr-%d-%s", time.Now().UnixNano(), hex.EncodeToString(b)), nil
-}
 
 type ResourceLimits struct {
 	MemoryBytes int64   // 0 = unlimited
@@ -32,7 +20,7 @@ type CgroupManager interface {
 	Create(containerId string, limits ResourceLimits) error
 	AddProcess(containerId string, pid int) error
 	Destroy(containerId string) error
-	DestroyRuntime() error
+	DeleteCgroupHierarchy() error
 }
 
 type CgroupsManager struct {
@@ -243,7 +231,7 @@ func (m *CgroupsManager) Destroy(containerId string) error {
 	// Remove the directory
 	return os.RemoveAll(path)
 }
-func (m *CgroupsManager) DestroyRuntime() error {
+func (m *CgroupsManager) DeleteCgroupHierarchy() error {
 	return m.Destroy("")
 }
 

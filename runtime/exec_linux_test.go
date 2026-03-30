@@ -3,21 +3,27 @@ package runtime
 import (
 	"syscall"
 	"testing"
+
+	"github.com/jaylate/yacr/runtime/resources"
 )
 
-func TestLinuxExecutor_SysProcAttr(t *testing.T) {
-	container, err := Create(ContainerConfig{
+func TestRuntime_SysProcAttr(t *testing.T) {
+	rt, err := CreateRuntime(resources.ResourceLimits{})
+	if err != nil {
+		t.Fatalf("Failed to create runtime: %v", err)
+	}
+
+	container, err := rt.CreateContainer(ContainerConfig{
 		ContainerID: "test-container",
 		InitBinary:  "./bin/init",
 		RootFS:      "rootfs",
 		Hostname:    "container",
-	}, nil, nil, nil)
-
+	})
 	if err != nil {
 		t.Fatalf("Failed to create container: %v", err)
 	}
 
-	err = container.Start("/bin/sh", "-l")
+	err = container.StartContainer("/bin/sh", "-l")
 	if err == nil {
 		t.Fatal("Expected error from Start (no real init binary), got nil")
 	}
@@ -68,7 +74,7 @@ func TestLinuxExecutor_SysProcAttr(t *testing.T) {
 	}
 }
 
-func TestLinuxExecutor_ConfigToArgs(t *testing.T) {
+func TestRuntime_ConfigToArgs(t *testing.T) {
 	tests := []struct {
 		name         string
 		cfg          *ContainerConfig
@@ -112,12 +118,17 @@ func TestLinuxExecutor_ConfigToArgs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			container, err := Create(*tt.cfg, nil, nil, nil)
+			rt, err := CreateRuntime(resources.ResourceLimits{})
+			if err != nil {
+				t.Fatalf("Failed to create runtime: %v", err)
+			}
+
+			container, err := rt.CreateContainer(*tt.cfg)
 			if err != nil {
 				t.Fatalf("Failed to create container: %v", err)
 			}
 
-			err = container.Start(tt.command, tt.args...)
+			err = container.StartContainer(tt.command, tt.args...)
 			if err == nil {
 				t.Fatal("Expected error from Start (no real init binary), got nil")
 			}

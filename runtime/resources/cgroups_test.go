@@ -124,7 +124,7 @@ func TestCgroupsManager_Create(t *testing.T) {
 		t.Fatalf("NewCgroupsManager: %v", err)
 	}
 
-	t.Cleanup(func() { mgr.DestroyRuntime() })
+	t.Cleanup(func() { mgr.DeleteCgroupHierarchy() })
 
 	err = mgr.Create("test-container", limits)
 	if err != nil {
@@ -176,7 +176,7 @@ func TestCgroupsManager_AddProcess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCgroupsManager() failed: %v", err)
 	}
-	t.Cleanup(func() { mgr.DestroyRuntime() })
+	t.Cleanup(func() { mgr.DeleteCgroupHierarchy() })
 	err = mgr.Create("test-container", limits)
 	if err != nil {
 		t.Fatalf("Create() failed: %v", err)
@@ -203,7 +203,7 @@ func TestCgroupsManager_Destroy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCgroupsManager() failed: %v", err)
 	}
-	t.Cleanup(func() { mgr.DestroyRuntime() })
+	t.Cleanup(func() { mgr.DeleteCgroupHierarchy() })
 
 	err = mgr.Create("test-container", limits)
 	if err != nil {
@@ -240,7 +240,7 @@ func TestCgroupsManager_UnlimitedValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCgroupsManager() failed: %v", err)
 	}
-	t.Cleanup(func() { mgr.DestroyRuntime() })
+	t.Cleanup(func() { mgr.DeleteCgroupHierarchy() })
 
 	err = mgr.Create("test-container", limits)
 	if err != nil {

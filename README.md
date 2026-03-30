@@ -67,35 +67,41 @@ runtime.Run("/bin/sh", nil, &runtime.ContainerConfig{
 })
 ```
 
-### Advanced: Create → Start → Delete
+### Advanced: Runtime → CreateContainer → StartContainer → DeleteContainer → DeleteRuntime
 
-For more control, use the Create/Start/Delete lifecycle:
+For more control, use the Runtime and Container lifecycle:
 
 ```go
-// Create container (sets up cgroups and namespaces)
-container, err := runtime.Create(
-    runtime.ContainerConfig{
-        RootFS:   "/path/to/rootfs",
-        Hostname: "myhost",
-        Limits: resources.ResourceLimits{
-            MemoryBytes: 512 * 1024 * 1024,
-        },
-    },
-    nil,  // cgroup manager
-    nil,  // namespace setup
-    nil,  // ID generator
-)
+// CreateRuntime sets up cgroup hierarchy with resource limits
+rt, err := runtime.CreateRuntime(resources.ResourceLimits{
+    MemoryBytes: 512 * 1024 * 1024,
+    CPUCores:    2.0,
+    PIDsMax:     50,
+})
 if err != nil {
     log.Fatal(err)
 }
 
-// Start the container
-if err := container.Start("/bin/sh", "-c", "echo hello"); err != nil {
+// CreateContainer sets up namespaces within the Runtime
+container, err := rt.CreateContainer(runtime.ContainerConfig{
+    RootFS:   "/path/to/rootfs",
+    Hostname: "myhost",
+})
+if err != nil {
+    rt.DeleteRuntime()
     log.Fatal(err)
 }
 
-// Cleanup (optional - automatically called after process exits)
-container.Delete()
+// StartContainer executes the command in the container
+if err := container.StartContainer("/bin/sh", "-c", "echo hello"); err != nil {
+    log.Fatal(err)
+}
+
+// DeleteContainer cleans up the container's cgroup
+container.DeleteContainer()
+
+// DeleteRuntime cleans up the cgroup hierarchy
+rt.DeleteRuntime()
 ```
 
 ## Configuration

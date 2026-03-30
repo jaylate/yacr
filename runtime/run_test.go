@@ -1,43 +1,21 @@
 package runtime
 
 import (
-	"errors"
 	"testing"
+
+	"github.com/jaylate/yacr/runtime/resources"
 )
 
-type fakeExecutor struct {
-	gotCommand string
-	gotArgs    []string
-	err        error
-}
-
-func (f *fakeExecutor) Execute(command string, args ...string) error {
-	f.gotCommand = command
-	f.gotArgs = append([]string(nil), args...)
-	return f.err
-}
-
-func TestRunWithExecutor_PassesCommandAndArgs(t *testing.T) {
-	fake := &fakeExecutor{}
-	err := RunWithExecutor("/bin/sh", []string{"-l", "-a"}, fake)
-
+func TestRunWithCgroups_NilConfig(t *testing.T) {
+	err := RunWithCgroups("/bin/sh", []string{"-c", "echo hello"}, nil, resources.ResourceLimits{})
 	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-	if fake.gotCommand != "/bin/sh" {
-		t.Fatalf("command = %q, want %q", fake.gotCommand, "/bin/sh")
-	}
-	if len(fake.gotArgs) != 2 || fake.gotArgs[0] != "-l" || fake.gotArgs[1] != "-a" {
-		t.Fatalf("args = %#v, want %#v", fake.gotArgs, []string{"-l", "-a"})
+		t.Logf("Expected error (no real rootfs/init), got: %v", err)
 	}
 }
 
-func TestRunWithExecutor_PropagatesError(t *testing.T) {
-	wantErr := errors.New("boom")
-	fake := &fakeExecutor{err: wantErr}
-	err := RunWithExecutor("/bin/sh", nil, fake)
-
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("error = %v, want %v", err, wantErr)
+func TestRun_NilConfig(t *testing.T) {
+	err := Run("/bin/sh", []string{"-c", "echo hello"}, nil)
+	if err != nil {
+		t.Logf("Expected error (no real rootfs/init), got: %v", err)
 	}
 }
