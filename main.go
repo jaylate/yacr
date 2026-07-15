@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/jaylate/yacr/bootstrap"
 	"github.com/jaylate/yacr/cmd"
 	"github.com/jaylate/yacr/runtime"
 	"github.com/jaylate/yacr/runtime/resources"
@@ -13,6 +14,9 @@ import (
 type runtimeRunner func(command string, args []string, cfg *runtime.ContainerConfig) error
 
 func main() {
+	if bootstrap.IsBootstrap() {
+		os.Exit(bootstrap.Run())
+	}
 	os.Exit(run(os.Args, os.Stderr, runtime.Run))
 }
 
