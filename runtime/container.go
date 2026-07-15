@@ -9,22 +9,24 @@ import (
 	"os/exec"
 	"time"
 
+	"github.com/jaylate/yacr/bootstrap"
 	"github.com/jaylate/yacr/runtime/resources"
 )
 
 type ContainerConfig struct {
 	ContainerID string
-	InitBinary  string
-	RootFS      string
-	Hostname    string
-	Limits      resources.ResourceLimits
+	// InitBinary is deprecated: bootstrap re-execs the yacr binary via [bootstrap.Self].
+	// Kept for one release so existing callers still compile; ignored at runtime.
+	InitBinary string
+	RootFS     string
+	Hostname   string
+	Limits     resources.ResourceLimits
 }
 
 func DefaultContainerConfig() *ContainerConfig {
 	return &ContainerConfig{
-		InitBinary: "./bin/init",
-		RootFS:     "rootfs",
-		Hostname:   "container",
+		RootFS:   "rootfs",
+		Hostname: "container",
 	}
 }
 
@@ -48,9 +50,6 @@ type Container struct {
 
 func (r *Runtime) CreateContainer(cfg ContainerConfig) (*Container, error) {
 	defaults := DefaultContainerConfig()
-	if cfg.InitBinary == "" {
-		cfg.InitBinary = defaults.InitBinary
-	}
 	if cfg.RootFS == "" {
 		cfg.RootFS = defaults.RootFS
 	}
@@ -67,6 +66,11 @@ func (r *Runtime) CreateContainer(cfg ContainerConfig) (*Container, error) {
 		}
 	}
 
+	self, err := bootstrap.Self()
+	if err != nil {
+		return nil, err
+	}
+
 	c := &Container{
 		ID:               containerID,
 		Config:           cfg,
@@ -74,9 +78,9 @@ func (r *Runtime) CreateContainer(cfg ContainerConfig) (*Container, error) {
 		namespaceManager: r.namespaceManager,
 	}
 
-	cmd := exec.Command(c.Config.InitBinary)
-	cmd.Args = []string{c.Config.InitBinary}
-
+	cmd := exec.Command(self)
+	cmd.Args = []string{self}
+	cmd.Env = bootstrap.Env()
 	cmd.Stdout = os.Stdout
 	cmd.Stdin = os.Stdin
 	cmd.Stderr = os.Stderr
@@ -107,13 +111,12 @@ func (c *Container) StartContainer(command string, args ...string) error {
 		return fmt.Errorf("container already started")
 	}
 
-	c.cmd.Args = append(c.cmd.Args,
-		"--hostname", c.Config.Hostname,
-		"--rootfs", c.Config.RootFS,
-		"--",
+	c.cmd.Args = append(c.cmd.Args, bootstrap.CommandArgs(
+		c.Config.Hostname,
+		c.Config.RootFS,
 		command,
-	)
-	c.cmd.Args = append(c.cmd.Args, args...)
+		args,
+	)...)
 	c.args = args
 
 	if err := c.cmd.Start(); err != nil {

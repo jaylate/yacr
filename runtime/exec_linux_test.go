@@ -1,9 +1,11 @@
 package runtime
 
 import (
+	"strings"
 	"syscall"
 	"testing"
 
+	"github.com/jaylate/yacr/bootstrap"
 	"github.com/jaylate/yacr/runtime/resources"
 )
 
@@ -15,7 +17,6 @@ func TestRuntime_SysProcAttr(t *testing.T) {
 
 	container, err := rt.CreateContainer(ContainerConfig{
 		ContainerID: "test-container",
-		InitBinary:  "./bin/init",
 		RootFS:      "rootfs",
 		Hostname:    "container",
 	})
@@ -25,7 +26,7 @@ func TestRuntime_SysProcAttr(t *testing.T) {
 
 	err = container.StartContainer("/bin/sh", "-l")
 	if err == nil {
-		t.Fatal("Expected error from Start (no real init binary), got nil")
+		t.Fatal("Expected error from Start (no real rootfs), got nil")
 	}
 
 	cmd := container.cmd
@@ -33,15 +34,30 @@ func TestRuntime_SysProcAttr(t *testing.T) {
 		t.Fatal("cmd should not be nil after Start")
 	}
 
-	if cmd.Path != "./bin/init" {
-		t.Errorf("cmd.Path = %q, want %q", cmd.Path, "./bin/init")
+	self, err := bootstrap.Self()
+	if err != nil {
+		t.Fatalf("bootstrap.Self: %v", err)
+	}
+	if cmd.Path != self {
+		t.Errorf("cmd.Path = %q, want %q", cmd.Path, self)
 	}
 
-	expectedArgs := []string{"./bin/init", "--hostname", "container", "--rootfs", "rootfs", "--", "/bin/sh", "-l"}
+	expectedArgs := append([]string{self}, bootstrap.CommandArgs("container", "rootfs", "/bin/sh", []string{"-l"})...)
 	for i, arg := range expectedArgs {
 		if cmd.Args[i] != arg {
 			t.Errorf("Args[%d] = %q, want %q", i, cmd.Args[i], arg)
 		}
+	}
+
+	foundMarker := false
+	for _, env := range cmd.Env {
+		if env == bootstrap.EnvMarker+"=1" {
+			foundMarker = true
+			break
+		}
+	}
+	if !foundMarker {
+		t.Errorf("cmd.Env missing %s=1", bootstrap.EnvMarker)
 	}
 
 	if cmd.SysProcAttr == nil {
@@ -75,6 +91,11 @@ func TestRuntime_SysProcAttr(t *testing.T) {
 }
 
 func TestRuntime_ConfigToArgs(t *testing.T) {
+	self, err := bootstrap.Self()
+	if err != nil {
+		t.Fatalf("bootstrap.Self: %v", err)
+	}
+
 	tests := []struct {
 		name         string
 		cfg          *ContainerConfig
@@ -86,33 +107,30 @@ func TestRuntime_ConfigToArgs(t *testing.T) {
 			name: "simple command",
 			cfg: &ContainerConfig{
 				ContainerID: "test-container",
-				InitBinary:  "./bin/init",
 			},
 			command:      "/bin/sh",
 			args:         []string{},
-			wantInitArgs: []string{"./bin/init", "--hostname", "container", "--rootfs", "rootfs", "--", "/bin/sh"},
+			wantInitArgs: append([]string{self}, bootstrap.CommandArgs("container", "rootfs", "/bin/sh", nil)...),
 		},
 		{
 			name: "command with args",
 			cfg: &ContainerConfig{
 				ContainerID: "test-container",
-				InitBinary:  "./bin/init",
 			},
 			command:      "/bin/sh",
 			args:         []string{"-l", "-a"},
-			wantInitArgs: []string{"./bin/init", "--hostname", "container", "--rootfs", "rootfs", "--", "/bin/sh", "-l", "-a"},
+			wantInitArgs: append([]string{self}, bootstrap.CommandArgs("container", "rootfs", "/bin/sh", []string{"-l", "-a"})...),
 		},
 		{
-			name: "rootfs and hostname passed to init",
+			name: "rootfs and hostname passed to bootstrap",
 			cfg: &ContainerConfig{
 				ContainerID: "test-container",
-				InitBinary:  "./bin/init",
 				RootFS:      "/custom/rootfs",
 				Hostname:    "myhost",
 			},
 			command:      "/bin/sh",
 			args:         []string{},
-			wantInitArgs: []string{"./bin/init", "--hostname", "myhost", "--rootfs", "/custom/rootfs", "--", "/bin/sh"},
+			wantInitArgs: append([]string{self}, bootstrap.CommandArgs("myhost", "/custom/rootfs", "/bin/sh", nil)...),
 		},
 	}
 
@@ -130,7 +148,7 @@ func TestRuntime_ConfigToArgs(t *testing.T) {
 
 			err = container.StartContainer(tt.command, tt.args...)
 			if err == nil {
-				t.Fatal("Expected error from Start (no real init binary), got nil")
+				t.Fatal("Expected error from Start (no real rootfs), got nil")
 			}
 
 			cmd := container.cmd
@@ -143,6 +161,9 @@ func TestRuntime_ConfigToArgs(t *testing.T) {
 					t.Errorf("Args[%d] = %q, want %q", i, cmd.Args[i], want)
 				}
 			}
+			if !strings.Contains(strings.Join(cmd.Args, " "), bootstrap.ArgName) {
+				t.Errorf("args should contain bootstrap token %q", bootstrap.ArgName)
+			}
 		})
 	}
 }
@@ -150,8 +171,8 @@ func TestRuntime_ConfigToArgs(t *testing.T) {
 func TestDefaultContainerConfig(t *testing.T) {
 	cfg := DefaultContainerConfig()
 
-	if cfg.InitBinary != "./bin/init" {
-		t.Errorf("InitBinary = %q, want %q", cfg.InitBinary, "./bin/init")
+	if cfg.InitBinary != "" {
+		t.Errorf("InitBinary = %q, want empty (bootstrap uses self)", cfg.InitBinary)
 	}
 	if cfg.RootFS != "rootfs" {
 		t.Errorf("RootFS = %q, want %q", cfg.RootFS, "rootfs")

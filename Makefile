@@ -1,21 +1,12 @@
 GOSRC       := $(wildcard *.go)
-CSRCDIR     := csrc
-CSRC        := $(wildcard $(CSRCDIR)/*.c)
 BINDIR      := ./bin
-CINITOBJ    := $(BINDIR)/init
 YACR        := $(BINDIR)/yacr
 
-CC          ?= gcc
-CFLAGS      ?= -Wall -Wextra
-
-.PHONY: all fmt build clean run buildinit test
+.PHONY: all fmt vet build clean run test
 all: build
 
 $(BINDIR):
 	mkdir -p $@
-
-buildinit: $(CSRC) | $(BINDIR)
-	$(CC) $(CFLAGS) $(CSRC) -o $(CINITOBJ)
 
 fmt: $(GOSRC)
 	go fmt ./...
@@ -23,8 +14,8 @@ fmt: $(GOSRC)
 vet: $(GOSRC)
 	go vet ./...
 
-build: fmt vet buildinit
-	go build -o $(BINDIR) ./...
+build: fmt vet | $(BINDIR)
+	go build -o $(YACR) .
 
 run: build
 	$(YACR) run /bin/sh
