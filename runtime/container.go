@@ -11,13 +11,19 @@ import (
 
 	"github.com/jaylate/yacr/bootstrap"
 	"github.com/jaylate/yacr/runtime/resources"
+	"github.com/jaylate/yacr/runtime/rootfs"
 )
 
 type ContainerConfig struct {
 	ContainerID string
-	RootFS      string
-	Hostname    string
-	Limits      resources.ResourceLimits
+	// RootFS is a path to an existing root filesystem directory.
+	// Ignored when RootFSProvider is set.
+	RootFS string
+	// RootFSProvider resolves the container root filesystem.
+	// When nil, RootFS (or "rootfs") is wrapped in rootfs.StaticProvider.
+	RootFSProvider rootfs.Provider
+	Hostname       string
+	Limits         resources.ResourceLimits
 }
 
 func DefaultContainerConfig() *ContainerConfig {
@@ -41,18 +47,27 @@ type Container struct {
 	cgroupManager    resources.CgroupManager
 	namespaceManager NamespaceManager
 
-	cmd  *exec.Cmd
-	args []string
+	cmd           *exec.Cmd
+	args          []string
+	rootfsPath    string
+	rootfsCleanup func() error
 }
 
 func (r *Runtime) CreateContainer(cfg ContainerConfig) (*Container, error) {
 	defaults := DefaultContainerConfig()
-	if cfg.RootFS == "" {
-		cfg.RootFS = defaults.RootFS
-	}
 	if cfg.Hostname == "" {
 		cfg.Hostname = defaults.Hostname
 	}
+
+	provider := cfg.RootFSProvider
+	if provider == nil {
+		provider = rootfs.FromPath(cfg.RootFS)
+	}
+	resolved, err := provider.Resolve()
+	if err != nil {
+		return nil, fmt.Errorf("resolve rootfs: %w", err)
+	}
+	cfg.RootFS = resolved.Path
 
 	containerID := cfg.ContainerID
 	if containerID == "" {
@@ -65,6 +80,7 @@ func (r *Runtime) CreateContainer(cfg ContainerConfig) (*Container, error) {
 
 	self, err := bootstrap.Self()
 	if err != nil {
+		_ = cleanupResolved(resolved)
 		return nil, err
 	}
 
@@ -73,6 +89,8 @@ func (r *Runtime) CreateContainer(cfg ContainerConfig) (*Container, error) {
 		Config:           cfg,
 		cgroupManager:    r.cgroupManager,
 		namespaceManager: r.namespaceManager,
+		rootfsPath:       resolved.Path,
+		rootfsCleanup:    resolved.Cleanup,
 	}
 
 	cmd := exec.Command(self)
@@ -83,6 +101,7 @@ func (r *Runtime) CreateContainer(cfg ContainerConfig) (*Container, error) {
 	cmd.Stderr = os.Stderr
 
 	if err := c.namespaceManager.Create(c.Config, cmd); err != nil {
+		_ = cleanupResolved(resolved)
 		if r.cgroupManager != nil {
 			r.cgroupManager.Destroy(containerID)
 		}
@@ -93,11 +112,19 @@ func (r *Runtime) CreateContainer(cfg ContainerConfig) (*Container, error) {
 
 	if r.cgroupManager != nil {
 		if err := r.cgroupManager.Create(containerID, cfg.Limits); err != nil {
+			_ = cleanupResolved(resolved)
 			return nil, fmt.Errorf("failed to create cgroup: %w", err)
 		}
 	}
 
 	return c, nil
+}
+
+func cleanupResolved(r *rootfs.Resolved) error {
+	if r != nil && r.Cleanup != nil {
+		return r.Cleanup()
+	}
+	return nil
 }
 
 func (c *Container) StartContainer(command string, args ...string) error {
@@ -110,7 +137,7 @@ func (c *Container) StartContainer(command string, args ...string) error {
 
 	c.cmd.Args = append(c.cmd.Args, bootstrap.CommandArgs(
 		c.Config.Hostname,
-		c.Config.RootFS,
+		c.rootfsPath,
 		command,
 		args,
 	)...)
@@ -145,10 +172,19 @@ func (c *Container) StartContainer(command string, args ...string) error {
 }
 
 func (c *Container) DeleteContainer() error {
+	var firstErr error
 	if c.cgroupManager != nil {
-		return c.cgroupManager.Destroy(c.ID)
+		if err := c.cgroupManager.Destroy(c.ID); err != nil {
+			firstErr = err
+		}
 	}
-	return nil
+	if c.rootfsCleanup != nil {
+		if err := c.rootfsCleanup(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+		c.rootfsCleanup = nil
+	}
+	return firstErr
 }
 
 func (c *Container) PID() int {
