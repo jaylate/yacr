@@ -7,9 +7,11 @@ import (
 
 	"github.com/jaylate/yacr/bootstrap"
 	"github.com/jaylate/yacr/runtime/resources"
+	"github.com/jaylate/yacr/runtime/rootfs"
 )
 
 func TestRuntime_SysProcAttr(t *testing.T) {
+	root := t.TempDir()
 	rt, err := CreateRuntime(resources.ResourceLimits{})
 	if err != nil {
 		t.Fatalf("Failed to create runtime: %v", err)
@@ -17,7 +19,7 @@ func TestRuntime_SysProcAttr(t *testing.T) {
 
 	container, err := rt.CreateContainer(ContainerConfig{
 		ContainerID: "test-container",
-		RootFS:      "rootfs",
+		RootFS:      root,
 		Hostname:    "container",
 	})
 	if err != nil {
@@ -26,7 +28,7 @@ func TestRuntime_SysProcAttr(t *testing.T) {
 
 	err = container.StartContainer("/bin/sh", "-l")
 	if err == nil {
-		t.Fatal("Expected error from Start (no real rootfs), got nil")
+		t.Fatal("Expected error from Start (minimal rootfs), got nil")
 	}
 
 	cmd := container.cmd
@@ -42,7 +44,7 @@ func TestRuntime_SysProcAttr(t *testing.T) {
 		t.Errorf("cmd.Path = %q, want %q", cmd.Path, self)
 	}
 
-	expectedArgs := append([]string{self}, bootstrap.CommandArgs("container", "rootfs", "/bin/sh", []string{"-l"})...)
+	expectedArgs := append([]string{self}, bootstrap.CommandArgs("container", root, "/bin/sh", []string{"-l"})...)
 	for i, arg := range expectedArgs {
 		if cmd.Args[i] != arg {
 			t.Errorf("Args[%d] = %q, want %q", i, cmd.Args[i], arg)
@@ -98,57 +100,69 @@ func TestRuntime_ConfigToArgs(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		cfg          *ContainerConfig
+		cfg          ContainerConfig
 		command      string
 		args         []string
-		wantInitArgs []string
+		wantHostname string
+		wantCommand  string
+		wantArgs     []string
 	}{
 		{
 			name: "simple command",
-			cfg: &ContainerConfig{
+			cfg: ContainerConfig{
 				ContainerID: "test-container",
 			},
 			command:      "/bin/sh",
 			args:         []string{},
-			wantInitArgs: append([]string{self}, bootstrap.CommandArgs("container", "rootfs", "/bin/sh", nil)...),
+			wantHostname: "container",
+			wantCommand:  "/bin/sh",
+			wantArgs:     nil,
 		},
 		{
 			name: "command with args",
-			cfg: &ContainerConfig{
+			cfg: ContainerConfig{
 				ContainerID: "test-container",
 			},
 			command:      "/bin/sh",
 			args:         []string{"-l", "-a"},
-			wantInitArgs: append([]string{self}, bootstrap.CommandArgs("container", "rootfs", "/bin/sh", []string{"-l", "-a"})...),
+			wantHostname: "container",
+			wantCommand:  "/bin/sh",
+			wantArgs:     []string{"-l", "-a"},
 		},
 		{
-			name: "rootfs and hostname passed to bootstrap",
-			cfg: &ContainerConfig{
-				ContainerID: "test-container",
-				RootFS:      "/custom/rootfs",
-				Hostname:    "myhost",
+			name: "custom hostname via provider",
+			cfg: ContainerConfig{
+				ContainerID:    "test-container",
+				RootFSProvider: rootfs.StaticProvider{Path: t.TempDir()},
+				Hostname:       "myhost",
 			},
 			command:      "/bin/sh",
 			args:         []string{},
-			wantInitArgs: append([]string{self}, bootstrap.CommandArgs("myhost", "/custom/rootfs", "/bin/sh", nil)...),
+			wantHostname: "myhost",
+			wantCommand:  "/bin/sh",
+			wantArgs:     nil,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.cfg.RootFSProvider == nil && tt.cfg.RootFS == "" {
+				tt.cfg.RootFS = t.TempDir()
+			}
+
 			rt, err := CreateRuntime(resources.ResourceLimits{})
 			if err != nil {
 				t.Fatalf("Failed to create runtime: %v", err)
 			}
 
-			container, err := rt.CreateContainer(*tt.cfg)
+			container, err := rt.CreateContainer(tt.cfg)
 			if err != nil {
 				t.Fatalf("Failed to create container: %v", err)
 			}
 
 			err = container.StartContainer(tt.command, tt.args...)
 			if err == nil {
-				t.Fatal("Expected error from Start (no real rootfs), got nil")
+				t.Fatal("Expected error from Start (minimal rootfs), got nil")
 			}
 
 			cmd := container.cmd
@@ -156,7 +170,13 @@ func TestRuntime_ConfigToArgs(t *testing.T) {
 				t.Fatal("cmd should not be nil after Start")
 			}
 
-			for i, want := range tt.wantInitArgs {
+			wantInitArgs := append([]string{self}, bootstrap.CommandArgs(
+				tt.wantHostname,
+				container.rootfsPath,
+				tt.wantCommand,
+				tt.wantArgs,
+			)...)
+			for i, want := range wantInitArgs {
 				if cmd.Args[i] != want {
 					t.Errorf("Args[%d] = %q, want %q", i, cmd.Args[i], want)
 				}
@@ -165,6 +185,22 @@ func TestRuntime_ConfigToArgs(t *testing.T) {
 				t.Errorf("args should contain bootstrap token %q", bootstrap.ArgName)
 			}
 		})
+	}
+}
+
+func TestCreateContainer_MissingRootFS(t *testing.T) {
+	rt, err := CreateRuntime(resources.ResourceLimits{})
+	if err != nil {
+		t.Fatalf("CreateRuntime: %v", err)
+	}
+	_, err = rt.CreateContainer(ContainerConfig{
+		RootFS: "/no/such/rootfs-" + t.Name(),
+	})
+	if err == nil {
+		t.Fatal("expected error for missing rootfs")
+	}
+	if !strings.Contains(err.Error(), "resolve rootfs") {
+		t.Errorf("error = %v, want resolve rootfs", err)
 	}
 }
 
