@@ -171,9 +171,6 @@ func TestRuntime_ConfigToArgs(t *testing.T) {
 func TestDefaultContainerConfig(t *testing.T) {
 	cfg := DefaultContainerConfig()
 
-	if cfg.InitBinary != "" {
-		t.Errorf("InitBinary = %q, want empty (bootstrap uses self)", cfg.InitBinary)
-	}
 	if cfg.RootFS != "rootfs" {
 		t.Errorf("RootFS = %q, want %q", cfg.RootFS, "rootfs")
 	}

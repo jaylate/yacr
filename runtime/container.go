@@ -15,12 +15,9 @@ import (
 
 type ContainerConfig struct {
 	ContainerID string
-	// InitBinary is deprecated: bootstrap re-execs the yacr binary via [bootstrap.Self].
-	// Kept for one release so existing callers still compile; ignored at runtime.
-	InitBinary string
-	RootFS     string
-	Hostname   string
-	Limits     resources.ResourceLimits
+	RootFS      string
+	Hostname    string
+	Limits      resources.ResourceLimits
 }
 
 func DefaultContainerConfig() *ContainerConfig {
