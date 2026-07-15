@@ -24,6 +24,12 @@ type ContainerConfig struct {
 	RootFSProvider rootfs.Provider
 	Hostname       string
 	Limits         resources.ResourceLimits
+
+	// Stdin, Stdout, and Stderr are attached to the container process.
+	// When nil, the corresponding os.Std* stream is used.
+	Stdin  io.Reader
+	Stdout io.Writer
+	Stderr io.Writer
 }
 
 func DefaultContainerConfig() *ContainerConfig {
@@ -96,9 +102,18 @@ func (r *Runtime) CreateContainer(cfg ContainerConfig) (*Container, error) {
 	cmd := exec.Command(self)
 	cmd.Args = []string{self}
 	cmd.Env = bootstrap.Env()
-	cmd.Stdout = os.Stdout
-	cmd.Stdin = os.Stdin
-	cmd.Stderr = os.Stderr
+	cmd.Stdin = cfg.Stdin
+	cmd.Stdout = cfg.Stdout
+	cmd.Stderr = cfg.Stderr
+	if cmd.Stdin == nil {
+		cmd.Stdin = os.Stdin
+	}
+	if cmd.Stdout == nil {
+		cmd.Stdout = os.Stdout
+	}
+	if cmd.Stderr == nil {
+		cmd.Stderr = os.Stderr
+	}
 
 	if err := c.namespaceManager.Create(c.Config, cmd); err != nil {
 		_ = cleanupResolved(resolved)

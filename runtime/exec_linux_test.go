@@ -204,6 +204,34 @@ func TestCreateContainer_MissingRootFS(t *testing.T) {
 	}
 }
 
+func TestCreateContainer_InjectsIO(t *testing.T) {
+	var stdout, stderr strings.Builder
+	stdin := strings.NewReader("")
+
+	rt, err := CreateRuntime(resources.ResourceLimits{})
+	if err != nil {
+		t.Fatalf("CreateRuntime: %v", err)
+	}
+	container, err := rt.CreateContainer(ContainerConfig{
+		RootFS: t.TempDir(),
+		Stdin:  stdin,
+		Stdout: &stdout,
+		Stderr: &stderr,
+	})
+	if err != nil {
+		t.Fatalf("CreateContainer: %v", err)
+	}
+	if container.cmd.Stdin != stdin {
+		t.Fatal("Stdin was not injected")
+	}
+	if container.cmd.Stdout != &stdout {
+		t.Fatal("Stdout was not injected")
+	}
+	if container.cmd.Stderr != &stderr {
+		t.Fatal("Stderr was not injected")
+	}
+}
+
 func TestDefaultContainerConfig(t *testing.T) {
 	cfg := DefaultContainerConfig()
 
