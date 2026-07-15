@@ -9,7 +9,9 @@ make build
 ./bin/yacr run /bin/sh
 ```
 
-**Note:** Download an [Alpine rootfs](https://alpinelinux.org/downloads/) first
+**Note:** Download an [Alpine rootfs](https://alpinelinux.org/downloads/) first. The CLI expects a `rootfs` directory by default (`--rootfs` to override).
+
+There is no separate init binary: yacr re-execs itself to enter the container (same pattern as runc).
 
 ### Options
 
@@ -43,13 +45,14 @@ Import the runtime package:
 import (
     "github.com/jaylate/yacr/runtime"
     "github.com/jaylate/yacr/runtime/resources"
+    "github.com/jaylate/yacr/runtime/rootfs"
 )
 ```
 
 ### Simple: Run a command
 
 ```go
-// Run a command in a container
+// Run a command in a container (requires ./rootfs or set RootFS)
 runtime.Run("/bin/sh", nil, nil)
 
 // With arguments
@@ -72,7 +75,6 @@ runtime.Run("/bin/sh", nil, &runtime.ContainerConfig{
 For more control, use the Runtime and Container lifecycle:
 
 ```go
-// CreateRuntime sets up cgroup hierarchy with resource limits
 rt, err := runtime.CreateRuntime(resources.ResourceLimits{
     MemoryBytes: 512 * 1024 * 1024,
     CPUCores:    2.0,
@@ -81,28 +83,37 @@ rt, err := runtime.CreateRuntime(resources.ResourceLimits{
 if err != nil {
     log.Fatal(err)
 }
+defer rt.DeleteRuntime()
 
-// CreateContainer sets up namespaces within the Runtime
 container, err := rt.CreateContainer(runtime.ContainerConfig{
     RootFS:   "/path/to/rootfs",
     Hostname: "myhost",
 })
 if err != nil {
-    rt.DeleteRuntime()
     log.Fatal(err)
 }
 
-// StartContainer executes the command in the container
 if err := container.StartContainer("/bin/sh", "-c", "echo hello"); err != nil {
     log.Fatal(err)
 }
 
-// DeleteContainer cleans up the container's cgroup
 container.DeleteContainer()
-
-// DeleteRuntime cleans up the cgroup hierarchy
-rt.DeleteRuntime()
 ```
+
+### Custom rootfs source and I/O
+
+```go
+var stdout bytes.Buffer
+
+container, err := rt.CreateContainer(runtime.ContainerConfig{
+    RootFSProvider: rootfs.StaticProvider{Path: "/path/to/rootfs"},
+    Hostname:       "myhost",
+    Stdout:         &stdout,
+    Stderr:         &stdout,
+})
+```
+
+`RootFSProvider` lets callers supply how the root filesystem is obtained. Today that is typically `rootfs.StaticProvider` (an unpacked directory). Image unpackers can implement the same interface later without changing the container lifecycle API.
 
 ## Configuration
 
@@ -111,10 +122,13 @@ rt.DeleteRuntime()
 | Field | Type | Description | Default |
 |-------|------|-------------|---------|
 | ContainerID | string | Unique container identifier | auto-generated |
-| InitBinary | string | Path to init binary | "./bin/init" |
-| RootFS | string | Root filesystem path | "rootfs" |
-| Hostname | string | Container hostname | "container" |
+| RootFS | string | Root filesystem path (ignored if RootFSProvider is set) | `"rootfs"` |
+| RootFSProvider | rootfs.Provider | Resolves the root filesystem | `StaticProvider` from RootFS |
+| Hostname | string | Container hostname | `"container"` |
 | Limits | ResourceLimits | Resource limits | unlimited |
+| Stdin | io.Reader | Container stdin | `os.Stdin` |
+| Stdout | io.Writer | Container stdout | `os.Stdout` |
+| Stderr | io.Writer | Container stderr | `os.Stderr` |
 
 ### ResourceLimits
 
@@ -126,14 +140,14 @@ rt.DeleteRuntime()
 
 ## Roadmap
 
-- [ ] Init (Separate C binary vs Go approach)
-    - [ ] Move to integrated Go init
-    - [ ] Add signal forwarding (SIGINT/SIGTERM) parent -> child
+- [ ] Bootstrap / runtime UX
+    - [ ] Add signal forwarding (SIGINT/SIGTERM) parent → child
     - [ ] Ensure cleanup hooks run on all exit paths
+    - [ ] Move from chroot to pivot_root
 - [ ] Image handling (OCI)
     - [ ] Add `image` package with reference parsing
     - [ ] Support local OCI archives (`oci-archive:/path/to/image.tar`)
-    - [ ] Unpack image layers to per-container rootfs workspace
+    - [ ] Unpack image layers via `rootfs.Provider`
     - [ ] Set resolved rootfs into runtime config
 - [ ] Registry Pull (OCI)
     - [ ] Support registry references (e.g., `docker.io/library/alpine:latest`)
