@@ -1,7 +1,9 @@
 package bootstrap
 
 import (
+	"bytes"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -35,58 +37,106 @@ func TestIsBootstrap(t *testing.T) {
 	}
 }
 
-func TestParseArgs(t *testing.T) {
-	hostname, rootfs, command, args, err := parseArgs([]string{
-		"--hostname", "myhost",
-		"--rootfs", "/tmp/root",
-		"--",
-		"/bin/sh", "-l",
-	})
-	if err != nil {
-		t.Fatalf("parseArgs: %v", err)
+func TestWriteReadConfig_RoundTrip(t *testing.T) {
+	want := Config{
+		Hostname: "myhost",
+		RootFS:   "/tmp/root",
+		WorkDir:  "/app",
+		Env:      []string{"PATH=/bin", "HOME=/root"},
+		UID:      1000,
+		GID:      1000,
+		Command:  "/bin/sh",
+		Args:     []string{"-c", "echo hi"},
 	}
-	if hostname != "myhost" {
-		t.Errorf("hostname = %q, want %q", hostname, "myhost")
-	}
-	if rootfs != "/tmp/root" {
-		t.Errorf("rootfs = %q, want %q", rootfs, "/tmp/root")
-	}
-	if command != "/bin/sh" {
-		t.Errorf("command = %q, want %q", command, "/bin/sh")
-	}
-	if len(args) != 1 || args[0] != "-l" {
-		t.Errorf("args = %#v, want [-l]", args)
-	}
-}
 
-func TestParseArgs_Defaults(t *testing.T) {
-	hostname, rootfs, command, args, err := parseArgs([]string{"--", "/bin/true"})
+	var buf bytes.Buffer
+	if err := WriteConfig(&buf, want); err != nil {
+		t.Fatalf("WriteConfig: %v", err)
+	}
+	got, err := ReadConfig(&buf)
 	if err != nil {
-		t.Fatalf("parseArgs: %v", err)
+		t.Fatalf("ReadConfig: %v", err)
 	}
-	if hostname != "container" {
-		t.Errorf("hostname = %q, want %q", hostname, "container")
+	if got.Hostname != want.Hostname {
+		t.Errorf("Hostname = %q, want %q", got.Hostname, want.Hostname)
 	}
-	if rootfs != "rootfs" {
-		t.Errorf("rootfs = %q, want %q", rootfs, "rootfs")
+	if got.RootFS != want.RootFS {
+		t.Errorf("RootFS = %q, want %q", got.RootFS, want.RootFS)
 	}
-	if command != "/bin/true" {
-		t.Errorf("command = %q, want %q", command, "/bin/true")
+	if got.WorkDir != want.WorkDir {
+		t.Errorf("WorkDir = %q, want %q", got.WorkDir, want.WorkDir)
 	}
-	if len(args) != 0 {
-		t.Errorf("args = %#v, want empty", args)
+	if got.UID != want.UID || got.GID != want.GID {
+		t.Errorf("UID/GID = %d/%d, want %d/%d", got.UID, got.GID, want.UID, want.GID)
 	}
-}
-
-func TestCommandArgs(t *testing.T) {
-	got := CommandArgs("h", "/r", "/bin/sh", []string{"-c", "echo"})
-	want := []string{"init", "--hostname", "h", "--rootfs", "/r", "--", "/bin/sh", "-c", "echo"}
-	if len(got) != len(want) {
-		t.Fatalf("len = %d, want %d (%#v)", len(got), len(want), got)
+	if got.Command != want.Command {
+		t.Errorf("Command = %q, want %q", got.Command, want.Command)
 	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("Args[%d] = %q, want %q", i, got[i], want[i])
+	if len(got.Args) != len(want.Args) {
+		t.Fatalf("Args = %#v, want %#v", got.Args, want.Args)
+	}
+	for i := range want.Args {
+		if got.Args[i] != want.Args[i] {
+			t.Errorf("Args[%d] = %q, want %q", i, got.Args[i], want.Args[i])
 		}
+	}
+	if len(got.Env) != len(want.Env) {
+		t.Fatalf("Env = %#v, want %#v", got.Env, want.Env)
+	}
+	for i := range want.Env {
+		if got.Env[i] != want.Env[i] {
+			t.Errorf("Env[%d] = %q, want %q", i, got.Env[i], want.Env[i])
+		}
+	}
+}
+
+func TestWriteConfig_EndsWithNewline(t *testing.T) {
+	var buf bytes.Buffer
+	if err := WriteConfig(&buf, Config{Command: "/bin/true", RootFS: "/r"}); err != nil {
+		t.Fatalf("WriteConfig: %v", err)
+	}
+	if !strings.HasSuffix(buf.String(), "\n") {
+		t.Errorf("WriteConfig output missing trailing newline: %q", buf.String())
+	}
+}
+
+func TestConfig_ApplyDefaultsAndValidate(t *testing.T) {
+	cfg := Config{RootFS: "/r", Command: "/bin/true"}
+	cfg.applyDefaults()
+	if cfg.WorkDir != "/" {
+		t.Errorf("WorkDir default = %q, want /", cfg.WorkDir)
+	}
+	if err := cfg.validate(); err != nil {
+		t.Errorf("validate valid config: %v", err)
+	}
+
+	if err := (Config{Command: "/bin/true"}).validate(); err == nil {
+		t.Error("expected error for missing rootfs")
+	}
+	if err := (Config{RootFS: "/r"}).validate(); err == nil {
+		t.Error("expected error for missing command")
+	}
+}
+
+func TestReadConfig_InvalidJSON(t *testing.T) {
+	_, err := ReadConfig(strings.NewReader("{not-json"))
+	if err == nil {
+		t.Fatal("expected decode error")
+	}
+}
+
+func TestDefaultMounts_Documented(t *testing.T) {
+	// Podman-compatible /dev layout is built in prepareDev/finishDev.
+	names := map[string]bool{}
+	for _, d := range hostDevices {
+		names[d.Name] = true
+	}
+	for _, want := range []string{"null", "zero", "full", "random", "urandom", "tty"} {
+		if !names[want] {
+			t.Errorf("hostDevices missing %s", want)
+		}
+	}
+	if names["console"] {
+		t.Error("console should be a pts symlink from setupConsole, not a host bind")
 	}
 }

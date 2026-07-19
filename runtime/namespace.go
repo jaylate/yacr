@@ -6,11 +6,20 @@ import (
 	"syscall"
 )
 
+// defaultCloneFlags is the Podman/runc-like namespace set for a rootless container.
+const defaultCloneFlags = syscall.CLONE_NEWUSER |
+	syscall.CLONE_NEWUTS |
+	syscall.CLONE_NEWIPC |
+	syscall.CLONE_NEWPID |
+	syscall.CLONE_NEWNET |
+	syscall.CLONE_NEWNS |
+	syscall.CLONE_NEWCGROUP
+
 type LinuxNamespaceManager struct{}
 
 func (s *LinuxNamespaceManager) Create(cfg ContainerConfig, cmd *exec.Cmd) error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Cloneflags: syscall.CLONE_NEWUSER | syscall.CLONE_NEWUTS | syscall.CLONE_NEWNS | syscall.CLONE_NEWPID,
+		Cloneflags: defaultCloneFlags,
 		UidMappings: []syscall.SysProcIDMap{
 			{
 				ContainerID: 0,

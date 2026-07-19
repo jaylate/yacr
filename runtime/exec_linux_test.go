@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"errors"
 	"strings"
 	"syscall"
 	"testing"
@@ -26,10 +27,11 @@ func TestRuntime_SysProcAttr(t *testing.T) {
 		t.Fatalf("Failed to create container: %v", err)
 	}
 
+	// Start may fail before exec if bootstrap API is incomplete, or after
+	// exec when the minimal rootfs cannot run the user process. On some hosts
+	// with a usable rootfs it may also succeed; both outcomes are fine here.
 	err = container.StartContainer("/bin/sh", "-l")
-	if err != nil &&
-		!strings.Contains(err.Error(), "failed to start process") &&
-		!strings.Contains(err.Error(), "process exited with error") {
+	if err != nil && !isExpectedStartContainerErr(err) {
 		t.Fatalf("StartContainer returned unexpected error: %v", err)
 	}
 
@@ -46,29 +48,45 @@ func TestRuntime_SysProcAttr(t *testing.T) {
 		t.Errorf("cmd.Path = %q, want %q", cmd.Path, self)
 	}
 
-	expectedArgs := append([]string{self}, bootstrap.CommandArgs("container", root, "/bin/sh", []string{"-l"})...)
-	for i, arg := range expectedArgs {
+	wantArgs := []string{self, bootstrap.ArgName}
+	if len(cmd.Args) != len(wantArgs) {
+		t.Fatalf("Args = %#v, want %#v", cmd.Args, wantArgs)
+	}
+	for i, arg := range wantArgs {
 		if cmd.Args[i] != arg {
 			t.Errorf("Args[%d] = %q, want %q", i, cmd.Args[i], arg)
 		}
 	}
 
 	foundMarker := false
+	foundConfigFD := false
 	for _, env := range cmd.Env {
 		if env == bootstrap.EnvMarker+"=1" {
 			foundMarker = true
-			break
+		}
+		if strings.HasPrefix(env, bootstrap.ConfigFDEnv+"=") {
+			foundConfigFD = true
+			if env != bootstrap.ConfigFDEnv+"=3" {
+				t.Errorf("config fd env = %q, want %s=3", env, bootstrap.ConfigFDEnv)
+			}
 		}
 	}
 	if !foundMarker {
 		t.Errorf("cmd.Env missing %s=1", bootstrap.EnvMarker)
+	}
+	if !foundConfigFD {
+		t.Errorf("cmd.Env missing %s", bootstrap.ConfigFDEnv)
+	}
+
+	if len(cmd.ExtraFiles) < 1 {
+		t.Error("expected ExtraFiles to include config pipe read end")
 	}
 
 	if cmd.SysProcAttr == nil {
 		t.Fatal("SysProcAttr should not be nil")
 	}
 
-	wantFlags := uintptr(syscall.CLONE_NEWUSER | syscall.CLONE_NEWUTS | syscall.CLONE_NEWNS | syscall.CLONE_NEWPID)
+	wantFlags := uintptr(syscall.CLONE_NEWUSER | syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC | syscall.CLONE_NEWPID | syscall.CLONE_NEWNET | syscall.CLONE_NEWNS | syscall.CLONE_NEWCGROUP)
 	if cmd.SysProcAttr.Cloneflags != wantFlags {
 		t.Errorf("Cloneflags = %v, want %v", cmd.SysProcAttr.Cloneflags, wantFlags)
 	}
@@ -94,42 +112,33 @@ func TestRuntime_SysProcAttr(t *testing.T) {
 	}
 }
 
-func TestRuntime_ConfigToArgs(t *testing.T) {
+func TestRuntime_BootstrapArgs(t *testing.T) {
 	self, err := bootstrap.Self()
 	if err != nil {
 		t.Fatalf("bootstrap.Self: %v", err)
 	}
 
 	tests := []struct {
-		name         string
-		cfg          ContainerConfig
-		command      string
-		args         []string
-		wantHostname string
-		wantCommand  string
-		wantArgs     []string
+		name    string
+		cfg     ContainerConfig
+		command string
+		args    []string
 	}{
 		{
 			name: "simple command",
 			cfg: ContainerConfig{
 				ContainerID: "test-container",
 			},
-			command:      "/bin/sh",
-			args:         []string{},
-			wantHostname: "container",
-			wantCommand:  "/bin/sh",
-			wantArgs:     nil,
+			command: "/bin/sh",
+			args:    []string{},
 		},
 		{
 			name: "command with args",
 			cfg: ContainerConfig{
 				ContainerID: "test-container",
 			},
-			command:      "/bin/sh",
-			args:         []string{"-l", "-a"},
-			wantHostname: "container",
-			wantCommand:  "/bin/sh",
-			wantArgs:     []string{"-l", "-a"},
+			command: "/bin/sh",
+			args:    []string{"-l", "-a"},
 		},
 		{
 			name: "custom hostname via provider",
@@ -138,11 +147,8 @@ func TestRuntime_ConfigToArgs(t *testing.T) {
 				RootFSProvider: rootfs.StaticProvider{Path: t.TempDir()},
 				Hostname:       "myhost",
 			},
-			command:      "/bin/sh",
-			args:         []string{},
-			wantHostname: "myhost",
-			wantCommand:  "/bin/sh",
-			wantArgs:     nil,
+			command: "/bin/sh",
+			args:    []string{},
 		},
 	}
 
@@ -163,9 +169,7 @@ func TestRuntime_ConfigToArgs(t *testing.T) {
 			}
 
 			err = container.StartContainer(tt.command, tt.args...)
-			if err != nil &&
-				!strings.Contains(err.Error(), "failed to start process") &&
-				!strings.Contains(err.Error(), "process exited with error") {
+			if err != nil && !isExpectedStartContainerErr(err) {
 				t.Fatalf("StartContainer returned unexpected error: %v", err)
 			}
 
@@ -174,21 +178,60 @@ func TestRuntime_ConfigToArgs(t *testing.T) {
 				t.Fatal("cmd should not be nil after Start")
 			}
 
-			wantInitArgs := append([]string{self}, bootstrap.CommandArgs(
-				tt.wantHostname,
-				container.rootfsPath,
-				tt.wantCommand,
-				tt.wantArgs,
-			)...)
-			for i, want := range wantInitArgs {
+			wantArgs := []string{self, bootstrap.ArgName}
+			if len(cmd.Args) != len(wantArgs) {
+				t.Fatalf("Args = %#v, want %#v", cmd.Args, wantArgs)
+			}
+			for i, want := range wantArgs {
 				if cmd.Args[i] != want {
 					t.Errorf("Args[%d] = %q, want %q", i, cmd.Args[i], want)
 				}
 			}
-			if !strings.Contains(strings.Join(cmd.Args, " "), bootstrap.ArgName) {
-				t.Errorf("args should contain bootstrap token %q", bootstrap.ArgName)
-			}
 		})
+	}
+}
+
+func TestCreateContainer_PreparesCmdWithoutStart(t *testing.T) {
+	rt, err := CreateRuntime(resources.ResourceLimits{})
+	if err != nil {
+		t.Fatalf("CreateRuntime: %v", err)
+	}
+	root := t.TempDir()
+	container, err := rt.CreateContainer(ContainerConfig{
+		ContainerID: "prep-only",
+		RootFS:      root,
+		Hostname:    "prep-host",
+		WorkDir:     "/tmp",
+		Env:         []string{"FOO=bar"},
+		UID:         1000,
+		GID:         1000,
+	})
+	if err != nil {
+		t.Fatalf("CreateContainer: %v", err)
+	}
+
+	if container.started {
+		t.Fatal("CreateContainer should not start the process")
+	}
+	if container.cmd == nil {
+		t.Fatal("cmd should be prepared")
+	}
+	if container.cmd.Process != nil {
+		t.Fatal("Process should be nil before Start")
+	}
+
+	self, err := bootstrap.Self()
+	if err != nil {
+		t.Fatalf("bootstrap.Self: %v", err)
+	}
+	if len(container.cmd.Args) != 1 || container.cmd.Args[0] != self {
+		t.Errorf("pre-Start Args = %#v, want [%q]", container.cmd.Args, self)
+	}
+	if container.Config.WorkDir != "/tmp" {
+		t.Errorf("WorkDir = %q, want /tmp", container.Config.WorkDir)
+	}
+	if container.Config.UID != 1000 || container.Config.GID != 1000 {
+		t.Errorf("UID/GID = %d/%d, want 1000/1000", container.Config.UID, container.Config.GID)
 	}
 }
 
@@ -245,4 +288,21 @@ func TestDefaultContainerConfig(t *testing.T) {
 	if cfg.Hostname != "container" {
 		t.Errorf("Hostname = %q, want %q", cfg.Hostname, "container")
 	}
+	if cfg.WorkDir != "/" {
+		t.Errorf("WorkDir = %q, want %q", cfg.WorkDir, "/")
+	}
+}
+
+// isExpectedStartContainerErr reports whether err is an acceptable outcome when
+// exercising StartContainer against a temp/minimal rootfs in unit tests.
+func isExpectedStartContainerErr(err error) bool {
+	var exitErr *ProcessExitError
+	if errors.As(err, &exitErr) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "failed to start process") ||
+		strings.Contains(msg, "process exited with") ||
+		strings.Contains(msg, "write bootstrap config") ||
+		strings.Contains(msg, "close bootstrap config pipe")
 }

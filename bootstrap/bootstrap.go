@@ -3,12 +3,19 @@
 // The parent process re-execs the yacr binary into the target namespaces and
 // invokes this package when [IsBootstrap] is true. This mirrors runc's
 // internal init path: it is not a user-facing CLI command.
+//
+// Configuration is passed as JSON over a pipe whose fd is in [ConfigFDEnv].
+// The parent should pass only [ArgName] as argv after argv0, set [EnvMarker],
+// attach the config pipe via ExtraFiles, and set ConfigFDEnv to that fd number.
 package bootstrap
 
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -29,57 +36,66 @@ func IsBootstrap() bool {
 // Run sets up the container rootfs and execs the user process.
 // It does not return on success.
 func Run() int {
-	hostname, rootfs, command, args, err := parseArgs(os.Args[2:])
+	cfg, err := readConfigFromEnv()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-
-	if err := setup(hostname, rootfs); err != nil {
+	cfg.applyDefaults()
+	if err := cfg.validate(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
 
-	argv := append([]string{command}, args...)
-	if err := syscall.Exec(command, argv, []string{}); err != nil {
+	if err := setup(cfg); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+
+	if cfg.GID != 0 {
+		if err := unix.Setgid(int(cfg.GID)); err != nil {
+			fmt.Fprintf(os.Stderr, "setgid: %v\n", err)
+			return 1
+		}
+	}
+	if cfg.UID != 0 {
+		if err := unix.Setuid(int(cfg.UID)); err != nil {
+			fmt.Fprintf(os.Stderr, "setuid: %v\n", err)
+			return 1
+		}
+	}
+
+	if err := unix.Chdir(cfg.WorkDir); err != nil {
+		fmt.Fprintf(os.Stderr, "chdir %s: %v\n", cfg.WorkDir, err)
+		return 1
+	}
+
+	env := cfg.Env
+	if env == nil {
+		env = []string{}
+	}
+
+	argv := append([]string{cfg.Command}, cfg.Args...)
+	if err := syscall.Exec(cfg.Command, argv, env); err != nil {
 		fmt.Fprintf(os.Stderr, "execve: %v\n", err)
 		return 1
 	}
 	return 1
 }
 
-func parseArgs(args []string) (hostname, rootfs, command string, cmdArgs []string, err error) {
-	hostname = "container"
-	rootfs = "rootfs"
-
-	i := 0
-	for i < len(args) {
-		arg := args[i]
-		if arg == "--" {
-			i++
-			break
-		}
-		switch arg {
-		case "--hostname":
-			if i+1 >= len(args) {
-				return "", "", "", nil, fmt.Errorf("missing value for --hostname")
-			}
-			hostname = args[i+1]
-			i += 2
-		case "--rootfs":
-			if i+1 >= len(args) {
-				return "", "", "", nil, fmt.Errorf("missing value for --rootfs")
-			}
-			rootfs = args[i+1]
-			i += 2
-		default:
-			return "", "", "", nil, fmt.Errorf("unknown bootstrap flag %q", arg)
-		}
+func readConfigFromEnv() (Config, error) {
+	fdStr := os.Getenv(ConfigFDEnv)
+	if fdStr == "" {
+		return Config{}, fmt.Errorf("missing %s", ConfigFDEnv)
 	}
-
-	if i >= len(args) {
-		return "", "", "", nil, fmt.Errorf("usage: yacr %s [--hostname name] [--rootfs path] -- <command> [args...]", ArgName)
+	fd, err := strconv.Atoi(fdStr)
+	if err != nil {
+		return Config{}, fmt.Errorf("parse %s: %w", ConfigFDEnv, err)
 	}
-
-	return hostname, rootfs, args[i], args[i+1:], nil
+	f := os.NewFile(uintptr(fd), "bootstrap-config")
+	if f == nil {
+		return Config{}, fmt.Errorf("invalid %s fd %d", ConfigFDEnv, fd)
+	}
+	defer f.Close()
+	return ReadConfig(f)
 }
