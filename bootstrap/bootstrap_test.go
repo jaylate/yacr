@@ -133,7 +133,8 @@ func TestDefaultMounts_Documented(t *testing.T) {
 	for _, m := range DefaultMounts {
 		targets[m.Target] = true
 	}
-	for _, want := range []string{"/proc", "/dev", "/sys"} {
+	// /proc is prepared separately for rootless kernels ("Mount too revealing").
+	for _, want := range []string{"/dev", "/sys"} {
 		if !targets[want] {
 			t.Errorf("DefaultMounts missing %s", want)
 		}

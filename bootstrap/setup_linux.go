@@ -8,20 +8,18 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// DefaultMounts are the temporary built-in mounts applied after pivot_root.
-// They are placeholders until OCI mounts[] is wired in.
-// sysfs and devpts are best-effort (often fail in user namespaces).
+// DefaultMounts are temporary built-in mounts applied after entering the rootfs
+// (excluding /proc, which is handled by prepareProc/remountProc).
+// Optional mounts may fail in unprivileged user namespaces.
 var DefaultMounts = []struct {
-	Source string
-	Target string
-	FSType string
-	Flags  uintptr
-	Data   string
-	// Optional marks mounts that may fail (e.g. in userns); errors are ignored.
+	Source   string
+	Target   string
+	FSType   string
+	Flags    uintptr
+	Data     string
 	Optional bool
 }{
-	{Source: "proc", Target: "/proc", FSType: "proc"},
-	{Source: "tmpfs", Target: "/dev", FSType: "tmpfs", Data: "mode=755"},
+	{Source: "tmpfs", Target: "/dev", FSType: "tmpfs", Data: "mode=755", Optional: true},
 	{Source: "sysfs", Target: "/sys", FSType: "sysfs", Optional: true},
 	{Source: "devpts", Target: "/dev/pts", FSType: "devpts", Data: "newinstance,ptmxmode=0666,mode=0620", Optional: true},
 }
@@ -32,20 +30,26 @@ func setup(cfg Config) error {
 		return fmt.Errorf("abs rootfs: %w", err)
 	}
 
-	if err := ensureRootfsMount(rootfs); err != nil {
+	// Best-effort: isolate mount propagation.
+	_ = unix.Mount("", "/", "", unix.MS_PRIVATE|unix.MS_REC, "")
+
+	// Bind-mount host /proc into the rootfs before pivot/chroot. Kernels that
+	// emit "VFS: Mount too revealing" reject a fresh proc mount in a userns
+	// unless a proc mount already exists in the mount tree (rootless path).
+	if err := prepareProc(rootfs); err != nil {
 		return err
 	}
 
-	// Make mount propagation private so container mounts stay isolated.
-	// Best-effort: may fail in some restricted environments.
-	_ = unix.Mount("", "/", "", unix.MS_PRIVATE|unix.MS_REC, "")
-
-	if err := pivotRoot(rootfs); err != nil {
-		// Fall back to chroot so tests/dev still work without full privileges.
+	// Prefer pivot_root; fall back to chroot when bind/pivot is denied.
+	if err := tryPivotRoot(rootfs); err != nil {
 		if ferr := chrootFallback(rootfs); ferr != nil {
-			return fmt.Errorf("pivot_root: %w (chroot fallback: %v)", err, ferr)
+			return fmt.Errorf("enter rootfs: pivot_root: %v; chroot: %w", err, ferr)
 		}
 	}
+
+	// Replace the bind-mounted proc with a pid-ns-local instance when allowed.
+	remountProc()
+
 	if err := applyDefaultMounts(); err != nil {
 		return err
 	}
@@ -56,6 +60,36 @@ func setup(cfg Config) error {
 		}
 	}
 	return nil
+}
+
+// prepareProc bind-mounts the caller's /proc into rootfs/proc so rootless
+// setups can later remount a real proc after pivot_root/chroot.
+func prepareProc(rootfs string) error {
+	target := filepath.Join(rootfs, "proc")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		return fmt.Errorf("mkdir proc: %w", err)
+	}
+	if err := unix.Mount("/proc", target, "", unix.MS_BIND|unix.MS_REC, ""); err != nil {
+		// Soft: some environments already have a usable proc or deny the bind;
+		// remountProc / later mounts may still succeed.
+		return nil
+	}
+	return nil
+}
+
+// remountProc mounts a fresh proc on /proc (pid-namespace aware).
+// If the kernel denies it, the bind from prepareProc is left in place.
+func remountProc() {
+	const flags = uintptr(unix.MS_NOSUID | unix.MS_NOEXEC | unix.MS_NODEV)
+	_ = unix.Mount("proc", "/proc", "proc", flags, "")
+}
+
+// tryPivotRoot bind-mounts rootfs (required by pivot_root) then pivots.
+func tryPivotRoot(rootfs string) error {
+	if err := ensureRootfsMount(rootfs); err != nil {
+		return err
+	}
+	return pivotRoot(rootfs)
 }
 
 func ensureRootfsMount(rootfs string) error {
@@ -81,9 +115,6 @@ func isMountPoint(path string) (bool, error) {
 	if err := unix.Stat(parent, &pst); err != nil {
 		return false, err
 	}
-	// Different device number means path is a mount point.
-	// Note: same-device bind mounts are not detected; ensureRootfsMount
-	// will bind again, which is harmless for our use.
 	return st.Dev != pst.Dev, nil
 }
 
@@ -130,7 +161,7 @@ func applyDefaultMounts() error {
 			return fmt.Errorf("mkdir %s: %w", m.Target, err)
 		}
 		if err := unix.Mount(m.Source, m.Target, m.FSType, m.Flags, m.Data); err != nil {
-			if m.Optional {
+			if m.Optional || err == unix.EBUSY {
 				continue
 			}
 			return fmt.Errorf("mount %s: %w", m.Target, err)
