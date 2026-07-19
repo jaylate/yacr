@@ -27,8 +27,10 @@ func TestRuntime_SysProcAttr(t *testing.T) {
 	}
 
 	err = container.StartContainer("/bin/sh", "-l")
-	if err == nil {
-		t.Fatal("Expected error from Start (minimal rootfs), got nil")
+	if err != nil &&
+		!strings.Contains(err.Error(), "failed to start process") &&
+		!strings.Contains(err.Error(), "process exited with error") {
+		t.Fatalf("StartContainer returned unexpected error: %v", err)
 	}
 
 	cmd := container.cmd
@@ -161,8 +163,10 @@ func TestRuntime_ConfigToArgs(t *testing.T) {
 			}
 
 			err = container.StartContainer(tt.command, tt.args...)
-			if err == nil {
-				t.Fatal("Expected error from Start (minimal rootfs), got nil")
+			if err != nil &&
+				!strings.Contains(err.Error(), "failed to start process") &&
+				!strings.Contains(err.Error(), "process exited with error") {
+				t.Fatalf("StartContainer returned unexpected error: %v", err)
 			}
 
 			cmd := container.cmd
