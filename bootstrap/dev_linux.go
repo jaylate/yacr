@@ -10,6 +10,7 @@ import (
 
 // hostDevices are bound from the host into the container /dev before
 // pivot_root/chroot so rootless (no mknod) setups still get a Podman-like /dev.
+// console is created later as a symlink to /dev/pts/N (not a host bind).
 var hostDevices = []struct {
 	Name   string
 	Source string // host path; empty means Name under /dev
@@ -20,7 +21,6 @@ var hostDevices = []struct {
 	{Name: "random"},
 	{Name: "urandom"},
 	{Name: "tty"},
-	{Name: "console", Source: "/dev/console"}, // falls back to /dev/tty if missing
 }
 
 // prepareDev mounts a tmpfs at rootfs/dev and bind-mounts standard devices
@@ -45,12 +45,7 @@ func prepareDev(rootfs string) error {
 		if src == "" {
 			src = filepath.Join("/dev", d.Name)
 		}
-		dst := filepath.Join(dev, d.Name)
-		if d.Name == "console" {
-			bindHostDeviceWithFallback(src, "/dev/tty", dst)
-			continue
-		}
-		_ = bindHostDevice(src, dst)
+		_ = bindHostDevice(src, filepath.Join(dev, d.Name))
 	}
 	return nil
 }
@@ -71,13 +66,6 @@ func bindHostDevice(src, dst string) error {
 	return nil
 }
 
-func bindHostDeviceWithFallback(primary, fallback, dst string) {
-	if err := bindHostDevice(primary, dst); err == nil {
-		return
-	}
-	_ = bindHostDevice(fallback, dst)
-}
-
 // finishDev sets up /dev submounts and Podman-compatible symlinks after the
 // container root is entered.
 func finishDev() {
@@ -88,20 +76,49 @@ func finishDev() {
 	_ = mountOptional("mqueue", "/dev/mqueue", "mqueue", unix.MS_NOSUID|unix.MS_NODEV|unix.MS_NOEXEC, "")
 	_ = mountOptional("sysfs", "/sys", "sysfs", unix.MS_NOSUID|unix.MS_NODEV|unix.MS_NOEXEC|unix.MS_RDONLY, "")
 
-	// ptmx → pts/ptmx (create after devpts is mounted).
 	_ = os.Remove("/dev/ptmx")
 	_ = os.Symlink("pts/ptmx", "/dev/ptmx")
 
 	_ = os.Remove("/dev/fd")
 	_ = os.Symlink("/proc/self/fd", "/dev/fd")
 	_ = os.Remove("/dev/stdin")
-	_ = os.Symlink("fd/0", "/dev/stdin")
+	_ = os.Symlink("/proc/self/fd/0", "/dev/stdin")
 	_ = os.Remove("/dev/stdout")
-	_ = os.Symlink("fd/1", "/dev/stdout")
+	_ = os.Symlink("/proc/self/fd/1", "/dev/stdout")
 	_ = os.Remove("/dev/stderr")
-	_ = os.Symlink("fd/2", "/dev/stderr")
+	_ = os.Symlink("/proc/self/fd/2", "/dev/stderr")
 	_ = os.Remove("/dev/core")
 	_ = os.Symlink("/proc/kcore", "/dev/core")
+
+	setupConsole()
+}
+
+// setupConsole allocates a pts and makes /dev/console -> /dev/pts/N, matching
+// Podman. The master FD is left open without CLOEXEC so the pts node survives
+// Exec (many shells close inherited slave FDs but leave others alone).
+func setupConsole() {
+	master, err := unix.Open("/dev/ptmx", unix.O_RDWR|unix.O_NOCTTY, 0)
+	if err != nil {
+		return
+	}
+	if err := unix.IoctlSetPointerInt(master, unix.TIOCSPTLCK, 0); err != nil {
+		_ = unix.Close(master)
+		return
+	}
+	n, err := unix.IoctlGetInt(master, unix.TIOCGPTN)
+	if err != nil {
+		_ = unix.Close(master)
+		return
+	}
+	name := fmt.Sprintf("/dev/pts/%d", n)
+
+	// Clear CLOEXEC so the master survives syscall.Exec and keeps pts/N alive.
+	if fdFlags, err := unix.FcntlInt(uintptr(master), unix.F_GETFD, 0); err == nil {
+		_, _ = unix.FcntlInt(uintptr(master), unix.F_SETFD, fdFlags&^unix.FD_CLOEXEC)
+	}
+
+	_ = os.Remove("/dev/console")
+	_ = os.Symlink(name, "/dev/console")
 }
 
 func mountOptional(source, target, fstype string, flags uintptr, data string) error {

@@ -131,9 +131,12 @@ func TestDefaultMounts_Documented(t *testing.T) {
 	for _, d := range hostDevices {
 		names[d.Name] = true
 	}
-	for _, want := range []string{"null", "zero", "full", "random", "urandom", "tty", "console"} {
+	for _, want := range []string{"null", "zero", "full", "random", "urandom", "tty"} {
 		if !names[want] {
 			t.Errorf("hostDevices missing %s", want)
 		}
+	}
+	if names["console"] {
+		t.Error("console should be a pts symlink from setupConsole, not a host bind")
 	}
 }
