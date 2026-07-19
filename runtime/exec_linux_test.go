@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"errors"
 	"strings"
 	"syscall"
 	"testing"
@@ -27,10 +28,11 @@ func TestRuntime_SysProcAttr(t *testing.T) {
 	}
 
 	// Start may fail before exec if bootstrap API is incomplete, or after
-	// exec when the minimal rootfs cannot run the user process.
+	// exec when the minimal rootfs cannot run the user process. On some hosts
+	// with a usable rootfs it may also succeed; both outcomes are fine here.
 	err = container.StartContainer("/bin/sh", "-l")
-	if err == nil {
-		t.Fatal("Expected error from StartContainer (minimal rootfs), got nil")
+	if err != nil && !isExpectedStartContainerErr(err) {
+		t.Fatalf("StartContainer returned unexpected error: %v", err)
 	}
 
 	cmd := container.cmd
@@ -167,8 +169,8 @@ func TestRuntime_BootstrapArgs(t *testing.T) {
 			}
 
 			err = container.StartContainer(tt.command, tt.args...)
-			if err == nil {
-				t.Fatal("Expected error from StartContainer (minimal rootfs), got nil")
+			if err != nil && !isExpectedStartContainerErr(err) {
+				t.Fatalf("StartContainer returned unexpected error: %v", err)
 			}
 
 			cmd := container.cmd
@@ -289,4 +291,18 @@ func TestDefaultContainerConfig(t *testing.T) {
 	if cfg.WorkDir != "/" {
 		t.Errorf("WorkDir = %q, want %q", cfg.WorkDir, "/")
 	}
+}
+
+// isExpectedStartContainerErr reports whether err is an acceptable outcome when
+// exercising StartContainer against a temp/minimal rootfs in unit tests.
+func isExpectedStartContainerErr(err error) bool {
+	var exitErr *ProcessExitError
+	if errors.As(err, &exitErr) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "failed to start process") ||
+		strings.Contains(msg, "process exited with") ||
+		strings.Contains(msg, "write bootstrap config") ||
+		strings.Contains(msg, "close bootstrap config pipe")
 }
