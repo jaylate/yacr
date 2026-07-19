@@ -8,22 +8,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// DefaultMounts are temporary built-in mounts applied after entering the rootfs
-// (excluding /proc, which is handled by prepareProc/remountProc).
-// Optional mounts may fail in unprivileged user namespaces.
-var DefaultMounts = []struct {
-	Source   string
-	Target   string
-	FSType   string
-	Flags    uintptr
-	Data     string
-	Optional bool
-}{
-	{Source: "tmpfs", Target: "/dev", FSType: "tmpfs", Data: "mode=755", Optional: true},
-	{Source: "sysfs", Target: "/sys", FSType: "sysfs", Optional: true},
-	{Source: "devpts", Target: "/dev/pts", FSType: "devpts", Data: "newinstance,ptmxmode=0666,mode=0620", Optional: true},
-}
-
 func setup(cfg Config) error {
 	rootfs, err := filepath.Abs(cfg.RootFS)
 	if err != nil {
@@ -40,6 +24,12 @@ func setup(cfg Config) error {
 		return err
 	}
 
+	// Populate /dev while host device nodes are still reachable (rootless:
+	// bind-mount instead of mknod).
+	if err := prepareDev(rootfs); err != nil {
+		return err
+	}
+
 	// Prefer pivot_root; fall back to chroot when bind/pivot is denied.
 	if err := tryPivotRoot(rootfs); err != nil {
 		if ferr := chrootFallback(rootfs); ferr != nil {
@@ -50,9 +40,8 @@ func setup(cfg Config) error {
 	// Replace the bind-mounted proc with a pid-ns-local instance when allowed.
 	remountProc()
 
-	if err := applyDefaultMounts(); err != nil {
-		return err
-	}
+	// pts/shm/mqueue/sys + Podman-compatible /dev symlinks.
+	finishDev()
 
 	if cfg.Hostname != "" {
 		if err := unix.Sethostname([]byte(cfg.Hostname)); err != nil {
@@ -148,24 +137,6 @@ func chrootFallback(rootfs string) error {
 	}
 	if err := unix.Chdir("/"); err != nil {
 		return fmt.Errorf("chdir /: %w", err)
-	}
-	return nil
-}
-
-func applyDefaultMounts() error {
-	for _, m := range DefaultMounts {
-		if err := os.MkdirAll(m.Target, 0o755); err != nil {
-			if m.Optional {
-				continue
-			}
-			return fmt.Errorf("mkdir %s: %w", m.Target, err)
-		}
-		if err := unix.Mount(m.Source, m.Target, m.FSType, m.Flags, m.Data); err != nil {
-			if m.Optional || err == unix.EBUSY {
-				continue
-			}
-			return fmt.Errorf("mount %s: %w", m.Target, err)
-		}
 	}
 	return nil
 }

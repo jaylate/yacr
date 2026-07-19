@@ -126,17 +126,14 @@ func TestReadConfig_InvalidJSON(t *testing.T) {
 }
 
 func TestDefaultMounts_Documented(t *testing.T) {
-	if len(DefaultMounts) == 0 {
-		t.Fatal("DefaultMounts should list temporary mounts until OCI mounts[]")
+	// Podman-compatible /dev layout is built in prepareDev/finishDev.
+	names := map[string]bool{}
+	for _, d := range hostDevices {
+		names[d.Name] = true
 	}
-	targets := map[string]bool{}
-	for _, m := range DefaultMounts {
-		targets[m.Target] = true
-	}
-	// /proc is prepared separately for rootless kernels ("Mount too revealing").
-	for _, want := range []string{"/dev", "/sys"} {
-		if !targets[want] {
-			t.Errorf("DefaultMounts missing %s", want)
+	for _, want := range []string{"null", "zero", "full", "random", "urandom", "tty", "console"} {
+		if !names[want] {
+			t.Errorf("hostDevices missing %s", want)
 		}
 	}
 }
