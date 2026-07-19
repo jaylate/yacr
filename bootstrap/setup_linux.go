@@ -14,6 +14,10 @@ func setup(cfg Config) error {
 		return fmt.Errorf("abs rootfs: %w", err)
 	}
 
+	// Bring up loopback in the new network namespace (CLONE_NEWNET). Soft-fail
+	// so containers still start if net setup is denied for any reason.
+	_ = setupLoopback()
+
 	// Best-effort: isolate mount propagation.
 	_ = unix.Mount("", "/", "", unix.MS_PRIVATE|unix.MS_REC, "")
 

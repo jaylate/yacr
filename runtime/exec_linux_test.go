@@ -86,7 +86,7 @@ func TestRuntime_SysProcAttr(t *testing.T) {
 		t.Fatal("SysProcAttr should not be nil")
 	}
 
-	wantFlags := uintptr(syscall.CLONE_NEWUSER | syscall.CLONE_NEWUTS | syscall.CLONE_NEWNS | syscall.CLONE_NEWPID)
+	wantFlags := uintptr(syscall.CLONE_NEWUSER | syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC | syscall.CLONE_NEWPID | syscall.CLONE_NEWNET | syscall.CLONE_NEWNS | syscall.CLONE_NEWCGROUP)
 	if cmd.SysProcAttr.Cloneflags != wantFlags {
 		t.Errorf("Cloneflags = %v, want %v", cmd.SysProcAttr.Cloneflags, wantFlags)
 	}
