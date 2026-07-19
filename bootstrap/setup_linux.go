@@ -24,6 +24,11 @@ func setup(cfg Config) error {
 		return err
 	}
 
+	// Same for /sys: a fresh sysfs mount is usually EPERM in a userns.
+	if err := prepareSys(rootfs); err != nil {
+		return err
+	}
+
 	// Populate /dev while host device nodes are still reachable (rootless:
 	// bind-mount instead of mknod).
 	if err := prepareDev(rootfs); err != nil {
@@ -39,8 +44,10 @@ func setup(cfg Config) error {
 
 	// Replace the bind-mounted proc with a pid-ns-local instance when allowed.
 	remountProc()
+	// Keep the bound /sys but make it read-only when possible.
+	remountSysRO()
 
-	// pts/shm/mqueue/sys + Podman-compatible /dev symlinks.
+	// pts/shm/mqueue + Podman-compatible /dev symlinks.
 	finishDev()
 
 	if cfg.Hostname != "" {
@@ -71,6 +78,31 @@ func prepareProc(rootfs string) error {
 func remountProc() {
 	const flags = uintptr(unix.MS_NOSUID | unix.MS_NOEXEC | unix.MS_NODEV)
 	_ = unix.Mount("proc", "/proc", "proc", flags, "")
+}
+
+// prepareSys recursively bind-mounts host /sys into rootfs/sys for rootless
+// environments where mounting a new sysfs instance is denied.
+func prepareSys(rootfs string) error {
+	target := filepath.Join(rootfs, "sys")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		return fmt.Errorf("mkdir sys: %w", err)
+	}
+	if err := unix.Mount("/sys", target, "", unix.MS_BIND|unix.MS_REC, ""); err != nil {
+		// Soft: finish may still try a fresh sysfs mount in privileged setups.
+		return nil
+	}
+	return nil
+}
+
+// remountSysRO remounts /sys read-only after enter. Falls back to a fresh
+// sysfs mount when no bind was prepared (e.g. privileged).
+func remountSysRO() {
+	const roFlags = uintptr(unix.MS_BIND | unix.MS_REMOUNT | unix.MS_RDONLY | unix.MS_NOSUID | unix.MS_NODEV | unix.MS_NOEXEC)
+	if err := unix.Mount("", "/sys", "", roFlags, ""); err == nil {
+		return
+	}
+	const flags = uintptr(unix.MS_NOSUID | unix.MS_NODEV | unix.MS_NOEXEC | unix.MS_RDONLY)
+	_ = unix.Mount("sysfs", "/sys", "sysfs", flags, "")
 }
 
 // tryPivotRoot bind-mounts rootfs (required by pivot_root) then pivots.

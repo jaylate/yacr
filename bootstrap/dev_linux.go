@@ -74,7 +74,6 @@ func finishDev() {
 	_ = mountOptional("tmpfs", "/dev/shm", "tmpfs", unix.MS_NOSUID|unix.MS_NODEV|unix.MS_NOEXEC,
 		"mode=1777,size=65536k")
 	_ = mountOptional("mqueue", "/dev/mqueue", "mqueue", unix.MS_NOSUID|unix.MS_NODEV|unix.MS_NOEXEC, "")
-	_ = mountOptional("sysfs", "/sys", "sysfs", unix.MS_NOSUID|unix.MS_NODEV|unix.MS_NOEXEC|unix.MS_RDONLY, "")
 
 	_ = os.Remove("/dev/ptmx")
 	_ = os.Symlink("pts/ptmx", "/dev/ptmx")
