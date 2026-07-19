@@ -92,3 +92,18 @@ func TestRun_RuntimeErrorIsReturnedAsExitOne(t *testing.T) {
 		t.Fatalf("stderr missing runtime error, got %q", stderr.String())
 	}
 }
+
+func TestRun_ProcessExitErrorPropagatesCode(t *testing.T) {
+	var stderr bytes.Buffer
+
+	exitCode := run([]string{"yacr", "run", "/bin/false"}, &stderr, func(command string, args []string, cfg *runtime.ContainerConfig) error {
+		return &runtime.ProcessExitError{Code: 42}
+	})
+
+	if exitCode != 42 {
+		t.Fatalf("exitCode = %d, want 42", exitCode)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr should be empty for process exit, got %q", stderr.String())
+	}
+}

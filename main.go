@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -55,6 +56,10 @@ func run(args []string, stderr io.Writer, runner runtimeRunner) int {
 	}
 
 	if err := runner(cfg.Command, cfg.Args, containerCfg); err != nil {
+		var exitErr *runtime.ProcessExitError
+		if errors.As(err, &exitErr) {
+			return exitErr.ExitCode()
+		}
 		fmt.Fprintln(stderr, err)
 		return 1
 	}

@@ -11,8 +11,6 @@ make build
 
 **Note:** Download an [Alpine rootfs](https://alpinelinux.org/downloads/) first. The CLI expects a `rootfs` directory by default (`--rootfs` to override).
 
-There is no separate init binary: yacr re-execs itself to enter the container (same pattern as runc).
-
 ### Options
 
 - `--hostname` - Container hostname (default: `container`)
@@ -93,14 +91,19 @@ if err != nil {
     log.Fatal(err)
 }
 
+// Blocking convenience (Start + Wait)
 if err := container.StartContainer("/bin/sh", "-c", "echo hello"); err != nil {
     log.Fatal(err)
 }
 
+// Or async: Start, then Wait / Kill
+// if err := container.Start("/bin/sh", "-c", "echo hello"); err != nil { ... }
+// code, err := container.Wait()
+
 container.DeleteContainer()
 ```
 
-### Custom rootfs source and I/O
+### Custom rootfs source, env, and I/O
 
 ```go
 var stdout bytes.Buffer
@@ -108,6 +111,8 @@ var stdout bytes.Buffer
 container, err := rt.CreateContainer(runtime.ContainerConfig{
     RootFSProvider: rootfs.StaticProvider{Path: "/path/to/rootfs"},
     Hostname:       "myhost",
+    Env:            []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"},
+    WorkDir:        "/",
     Stdout:         &stdout,
     Stderr:         &stdout,
 })
@@ -125,6 +130,9 @@ container, err := rt.CreateContainer(runtime.ContainerConfig{
 | RootFS | string | Root filesystem path (ignored if RootFSProvider is set) | `"rootfs"` |
 | RootFSProvider | rootfs.Provider | Resolves the root filesystem | `StaticProvider` from RootFS |
 | Hostname | string | Container hostname | `"container"` |
+| Env | []string | Process environment (`KEY=VAL`) | empty |
+| WorkDir | string | Working directory inside the container | `"/"` |
+| UID / GID | uint32 | Credentials after bootstrap setup | `0` / `0` |
 | Limits | ResourceLimits | Resource limits | unlimited |
 | Stdin | io.Reader | Container stdin | `os.Stdin` |
 | Stdout | io.Writer | Container stdout | `os.Stdout` |
@@ -140,10 +148,7 @@ container, err := rt.CreateContainer(runtime.ContainerConfig{
 
 ## Roadmap
 
-- [ ] Bootstrap / runtime UX
-    - [ ] Add signal forwarding (SIGINT/SIGTERM) parent → child
-    - [ ] Ensure cleanup hooks run on all exit paths
-    - [ ] Move from chroot to pivot_root
+- [ ] OCI runtime (`config.json`, create/start/state/kill/delete)
 - [ ] Image handling (OCI)
     - [ ] Add `image` package with reference parsing
     - [ ] Support local OCI archives (`oci-archive:/path/to/image.tar`)

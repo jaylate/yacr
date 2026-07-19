@@ -19,6 +19,7 @@ func RunWithCgroups(command string, commandArgs []string, cfg *ContainerConfig, 
 	if err != nil {
 		return err
 	}
+	defer container.DeleteContainer()
 
 	return container.StartContainer(command, commandArgs...)
 }
@@ -38,6 +39,7 @@ func Run(command string, commandArgs []string, cfg *ContainerConfig) (err error)
 	if err != nil {
 		return err
 	}
+	defer container.DeleteContainer()
 
 	return container.StartContainer(command, commandArgs...)
 }
